@@ -56,10 +56,19 @@ jobs:
         run: |
           mkdir -p build/ios
           "$GODOT" --headless --import || true
-          "$GODOT" --headless --export-debug "iOS" build/ios/lan-war.ipa
+          "$GODOT" --headless --export-debug "iOS" build/ios/lan-war.ipa 2>&1 | tee build/ios/export.log
           ls -la build/ios
 
+      - name: Report
+        run: |
+          if [ -f build/ios/lan-war.ipa ]; then
+            echo "IPA created."
+          else
+            echo "::warning::No IPA was created. Add the Apple signing secrets (see BUILD_MOBILE.md) and read build/ios/export.log"
+          fi
+
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: lan-war-ios
           path: build/ios
