@@ -1,0 +1,66 @@
+name: build-ios-ipa
+# يحتاج حساب Apple Developer. بدون الأسرار (secrets) يُنتج مشروع Xcode فقط.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  ios:
+    runs-on: macos-14
+    env:
+      GODOT_VERSION: "4.3"
+      HAS_SIGNING: ${{ secrets.IOS_CERT_P12_BASE64 != '' }}
+      IOS_CERT_P12_BASE64: ${{ secrets.IOS_CERT_P12_BASE64 }}
+      IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+      IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot and export templates
+        run: |
+          BASE=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
+          curl -fsSL -o godot.zip $BASE/Godot_v${GODOT_VERSION}-stable_macos.universal.zip
+          curl -fsSL -o tpl.tpz $BASE/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          unzip -q godot.zip
+          unzip -q tpl.tpz -d tpl
+          DEST="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$DEST"
+          mv tpl/templates/* "$DEST/"
+          echo "GODOT=$PWD/Godot.app/Contents/MacOS/Godot" >> $GITHUB_ENV
+
+      - name: Import signing certificate and profile
+        if: env.HAS_SIGNING == 'true'
+        run: |
+          KC="$RUNNER_TEMP/build.keychain"
+          echo "$IOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p tmp "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p tmp "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$IOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k tmp "$KC"
+          security list-keychains -d user -s "$KC" login.keychain
+          echo "$IOS_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/p.mobileprovision"
+          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(security cms -D -i "$RUNNER_TEMP/p.mobileprovision")")
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$RUNNER_TEMP/p.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+          echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
+
+      - name: Fill export preset
+        run: |
+          sed -i '' "s/__TEAM_ID__/${APPLE_TEAM_ID}/g; s/__PROFILE_UUID__/${PROFILE_UUID}/g" export_presets.cfg
+
+      - name: Export iOS
+        continue-on-error: true
+        run: |
+          mkdir -p build/ios
+          "$GODOT" --headless --import || true
+          "$GODOT" --headless --export-debug "iOS" build/ios/lan-war.ipa
+          ls -la build/ios
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lan-war-ios
+          path: build/ios
+          if-no-files-found: warn
