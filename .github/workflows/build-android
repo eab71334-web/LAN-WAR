@@ -1,0 +1,44 @@
+name: build-android-apk
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    container: barichello/godot-ci:4.3
+    env:
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Godot templates and editor settings
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates ~/.config/godot
+          cp -r /root/.local/share/godot/export_templates/. ~/.local/share/godot/export_templates/
+          cp -r /root/.config/godot/. ~/.config/godot/ || true
+
+      - name: Create debug keystore
+        run: |
+          keytool -genkeypair -v -keystore "$GITHUB_WORKSPACE/debug.keystore" \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Import project
+        run: godot --headless --import || true
+
+      - name: Export APK (debug-signed)
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/debug.keystore
+        run: |
+          mkdir -p build/android
+          godot --headless --export-debug "Android" build/android/lan-war.apk
+          ls -la build/android
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lan-war-apk
+          path: build/android/lan-war.apk
