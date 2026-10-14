@@ -22,6 +22,7 @@ jobs:
 
       - name: Install Android SDK (build-tools 34) and point Godot to it
         run: |
+          apt-get update -qq && apt-get install -y -qq unzip curl zip
           export ANDROID_SDK_ROOT="$HOME/android-sdk"
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
           curl -fsSL -o cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
