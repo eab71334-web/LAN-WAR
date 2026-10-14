@@ -61,8 +61,18 @@ const VSTATS := {
 }
 
 
+var is_mobile := false
+var touch_live := false   # true أثناء اللعب الفعلي (ليس أثناء شاشة التجهيز)
+
+
 func _ready() -> void:
+	is_mobile = OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch")
 	_setup_input()
+
+
+## هل المدخلات (ماوس ملتقط أو لمس) فعّالة الآن؟
+func input_live() -> bool:
+	return Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or (is_mobile and touch_live)
 
 
 func default_settings() -> Dictionary:
@@ -86,6 +96,7 @@ func _setup_input() -> void:
 		InputMap.action_add_event(a, ev)
 	if not InputMap.has_action("fire"):
 		InputMap.add_action("fire")
-	var mb := InputEventMouseButton.new()
-	mb.button_index = MOUSE_BUTTON_LEFT
-	InputMap.action_add_event("fire", mb)
+	if not is_mobile:   # على الجوال اللمس يُحاكي الماوس، فلا نربط الإطلاق به
+		var mb := InputEventMouseButton.new()
+		mb.button_index = MOUSE_BUTTON_LEFT
+		InputMap.action_add_event("fire", mb)
