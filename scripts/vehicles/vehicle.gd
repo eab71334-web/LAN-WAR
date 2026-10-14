@@ -184,7 +184,7 @@ func set_driver(p: int) -> void:
 func _unhandled_input(e: InputEvent) -> void:
 	if not _is_me() or kind == "jet":
 		return
-	if e is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+	if e is InputEventMouseMotion and e.device != InputEvent.DEVICE_ID_EMULATION and Cfg.input_live():
 		_cam_yaw -= e.relative.x * 0.0025
 		_cam_pitch = clampf(_cam_pitch - e.relative.y * 0.0025, -1.3, 0.6)
 
@@ -213,7 +213,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _send_input() -> void:
-	var cap := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	var cap := Cfg.input_live()
 	var thr := Input.get_axis("move_back", "move_fwd") if cap else 0.0
 	var strv := Input.get_axis("move_left", "move_right") if cap else 0.0
 	var lift := 0.0
