@@ -1,62 +1,100 @@
-name: build-android-apk
+name: build-ios-ipa
+# مع أسرار Apple: IPA موقّع.
+# بدونها: IPA غير موقّع (lan-war-unsigned.ipa) تثبّته بـ Sideloadly أو AltStore بحساب Apple ID مجاني.
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-  workflow_dispatch:
+    tags: ["v*"]
 
 jobs:
-  android:
-    runs-on: ubuntu-latest
-    container: barichello/godot-ci:4.3
+  ios:
+    runs-on: macos-14
     env:
-      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
-      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+      GODOT_VERSION: "4.3"
+      HAS_SIGNING: ${{ secrets.IOS_CERT_P12_BASE64 != '' }}
+      IOS_CERT_P12_BASE64: ${{ secrets.IOS_CERT_P12_BASE64 }}
+      IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+      IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Godot templates and editor settings
+      - name: Install Godot and export templates
         run: |
-          mkdir -p ~/.local/share/godot/export_templates ~/.config/godot
-          cp -r /root/.local/share/godot/export_templates/. ~/.local/share/godot/export_templates/
-          cp -r /root/.config/godot/. ~/.config/godot/ || true
+          BASE=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
+          curl -fsSL -o godot.zip $BASE/Godot_v${GODOT_VERSION}-stable_macos.universal.zip
+          curl -fsSL -o tpl.tpz $BASE/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          unzip -q godot.zip
+          unzip -q tpl.tpz -d tpl
+          DEST="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$DEST"
+          mv tpl/templates/* "$DEST/"
+          echo "GODOT=$PWD/Godot.app/Contents/MacOS/Godot" >> $GITHUB_ENV
 
-      - name: Install Android SDK (build-tools 34) and point Godot to it
+      - name: Import signing certificate and profile
+        if: env.HAS_SIGNING == 'true'
         run: |
-          apt-get update -qq && apt-get install -y -qq unzip curl zip
-          export ANDROID_SDK_ROOT="$HOME/android-sdk"
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-          curl -fsSL -o cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q cmdtools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
-          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          SDKM="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" "platform-tools" "build-tools;34.0.0" "platforms;android-34"
-          JAVA_DIR=$(dirname "$(dirname "$(readlink -f "$(which keytool)")")")
-          mkdir -p ~/.config/godot
-          for f in editor_settings-4.tres editor_settings-4.3.tres; do
-            printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\nexport/android/android_sdk_path = "%s"\nexport/android/java_sdk_path = "%s"\n' "$ANDROID_SDK_ROOT" "$JAVA_DIR" > ~/.config/godot/$f
-          done
-          cat ~/.config/godot/editor_settings-4.tres
+          KC="$RUNNER_TEMP/build.keychain"
+          echo "$IOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p tmp "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p tmp "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$IOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k tmp "$KC"
+          security list-keychains -d user -s "$KC" login.keychain
+          echo "$IOS_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/p.mobileprovision"
+          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(security cms -D -i "$RUNNER_TEMP/p.mobileprovision")")
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$RUNNER_TEMP/p.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+          echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
 
-      - name: Create debug keystore
+      - name: Fill export preset
         run: |
-          keytool -genkeypair -v -keystore "$GITHUB_WORKSPACE/debug.keystore" \
-            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US"
+          TEAM="${APPLE_TEAM_ID:-}"
+          if [ "$HAS_SIGNING" != "true" ]; then
+            TEAM="AAAAAAAAAA"
+            sed -i '' 's/application\/export_project_only=false/application\/export_project_only=true/' export_presets.cfg
+          fi
+          sed -i '' "s/__TEAM_ID__/${TEAM}/g; s/__PROFILE_UUID__/${PROFILE_UUID:-}/g" export_presets.cfg
 
-      - name: Import project
-        run: godot --headless --import || true
-
-      - name: Export APK (debug-signed)
-        env:
-          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/debug.keystore
+      - name: Export iOS from Godot
+        continue-on-error: true
         run: |
-          mkdir -p build/android
-          godot --headless --export-debug "Android" build/android/lan-war.apk
-          ls -la build/android
+          mkdir -p build/ios
+          "$GODOT" --headless --import || true
+          "$GODOT" --headless --export-debug "iOS" build/ios/lan-war.ipa 2>&1 | tee build/ios/export.log
+          find build/ios -maxdepth 2 | head -50
+
+      - name: Build unsigned IPA (for Sideloadly / AltStore)
+        if: env.HAS_SIGNING != 'true'
+        run: |
+          set -o pipefail
+          PROJ=$(find build/ios -maxdepth 2 -name "*.xcodeproj" | head -1)
+          echo "Project: $PROJ"
+          NAME=$(basename "$PROJ" .xcodeproj)
+          xcodebuild -project "$PROJ" -scheme "$NAME" -configuration Debug -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tee build/xcodebuild.log
+          APP=$(find build/dd -maxdepth 6 -name "*.app" -path "*Debug-iphoneos*" | head -1)
+          echo "App: $APP"
+          rm -rf build/Payload && mkdir -p build/Payload
+          cp -R "$APP" build/Payload/
+          (cd build && zip -qr lan-war-unsigned.ipa Payload)
+          ls -la build
+
+      - name: Report
+        run: |
+          ls -la build build/ios || true
+          if [ -f build/lan-war-unsigned.ipa ] || [ -f build/ios/lan-war.ipa ]; then echo "IPA created."; else echo "::warning::No IPA created. Read export.log / xcodebuild.log in the artifact."; fi
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: lan-war-apk
-          path: build/android/lan-war.apk
+          name: lan-war-ios
+          path: |
+            build/lan-war-unsigned.ipa
+            build/ios/lan-war.ipa
+            build/ios/export.log
+            build/xcodebuild.log
+          if-no-files-found: warn
