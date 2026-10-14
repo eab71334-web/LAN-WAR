@@ -5,6 +5,7 @@ config_version=5
 config/name="LAN WAR"
 run/main_scene="res://scenes/main_menu.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
+config/icon="res://icon.svg"
 
 [autoload]
 
@@ -16,6 +17,7 @@ Net="*res://scripts/autoload/net.gd"
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
+window/handheld/orientation=0
 
 [rendering]
 

@@ -61,6 +61,9 @@ scripts/vehicles/vehicle.gd  كل المركبات
 ```
 المضيف هو المرجع (server-authoritative) للضرر وحدود المركبات والنتائج.
 
+## الجوال
+أزرار لمس + بناء APK تلقائي (GitHub Actions) وبناء IPA: انظر `BUILD_MOBILE.md`.
+
 ## الرفع على GitHub
 ```
 git init
