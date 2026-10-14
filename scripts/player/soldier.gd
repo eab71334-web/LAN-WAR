@@ -109,7 +109,7 @@ func _find_vehicle():
 func _unhandled_input(e: InputEvent) -> void:
 	if not is_multiplayer_authority() or not alive:
 		return
-	if e is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and vehicle == null:
+	if e is InputEventMouseMotion and e.device != InputEvent.DEVICE_ID_EMULATION and Cfg.input_live() and vehicle == null:
 		rotate_y(-e.relative.x * 0.0025)
 		_pitch = clampf(_pitch - e.relative.y * 0.0025, -1.2, 1.0)
 		_arm.rotation.x = _pitch
@@ -153,7 +153,7 @@ func _physics_process(delta: float) -> void:
 		global_position = v.global_position
 		return
 
-	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	var captured := Cfg.input_live()
 	var sp: float = Cfg.CLASSES[cls].speed * (1.5 if Input.is_action_pressed("sprint") else 1.0)
 	var inp := Input.get_vector("move_left", "move_right", "move_fwd", "move_back") if captured else Vector2.ZERO
 	var dir := (global_transform.basis * Vector3(inp.x, 0, inp.y)).normalized()
