@@ -6,6 +6,7 @@ const SoldierS := preload("res://scripts/player/soldier.gd")
 const VehicleS := preload("res://scripts/vehicles/vehicle.gd")
 const Fx := preload("res://scripts/match/fx.gd")
 const UI := preload("res://scripts/ui/ui.gd")
+const TouchS := preload("res://scripts/ui/touch_controls.gd")
 
 var local_soldier = null
 var spawn_points := {}
@@ -39,6 +40,7 @@ var _kind_keys := []
 
 
 func _ready() -> void:
+	Cfg.touch_live = false
 	spawn_points = MapBuilder.build(self, Net.match_map)
 	entities = Node3D.new()
 	entities.name = "Entities"
@@ -244,6 +246,7 @@ func _you_died(secs: float) -> void:
 @rpc("authority", "call_local", "reliable")
 func _over(team: int) -> void:
 	game_over = true
+	Cfg.touch_live = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_loadout.visible = false
 	_over_panel.visible = true
@@ -264,7 +267,9 @@ func _on_peer_left(id: int) -> void:
 
 func on_local_spawn() -> void:
 	_loadout.visible = false
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	Cfg.touch_live = true
+	if not Cfg.is_mobile:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 # ---------- الواجهة ----------
@@ -283,6 +288,10 @@ func _build_ui() -> void:
 	UI.full_rect(root)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cl.add_child(root)
+	if Cfg.is_mobile:
+		var tc := TouchS.new()
+		UI.full_rect(tc)
+		root.add_child(tc)
 
 	_hud_scores = _label()
 	root.add_child(_hud_scores)
@@ -365,6 +374,7 @@ func _build_ui() -> void:
 func _show_loadout(msg: String) -> void:
 	_loadout_msg.text = msg
 	_loadout.visible = true
+	Cfg.touch_live = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
@@ -418,3 +428,7 @@ func _unhandled_input(e: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	if e is InputEventKey and e.pressed and e.keycode == KEY_F10 and Net.is_host:
 		Net.end_match()
+
+
+func _exit_tree() -> void:
+	Cfg.touch_live = false
