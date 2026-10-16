@@ -22,6 +22,7 @@ var _limit_total: Label
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	theme = UI.make_theme()
 	UI.backdrop(self)
 	var margin := MarginContainer.new()
 	UI.full_rect(margin)

@@ -1,7 +1,7 @@
 extends Control
 ## أزرار اللمس للجوال: عصا حركة (يسار)، نظر بالسحب (يمين)، وأزرار.
 ## الطائرة: العصا = رفع/خفض الأنف وميلان. RUN = زيادة الدفع. DOWN = تقليل الدفع.
-## المروحية: JUMP = صعود، DOWN = نزول.
+## المروحية: JUMP = صعود، DOWN = نزول. ALT = صواريخ.
 
 const STICK_R := 90.0
 
@@ -9,22 +9,32 @@ var _stick_id := -1
 var _stick_origin := Vector2.ZERO
 var _stick_vec := Vector2.ZERO
 var _look_id := -1
-var _held := {}   # رقم الإصبع -> اسم الفعل
+var _held := {}
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
+func _is_mlrs() -> bool:
+	var s = get_tree().current_scene.local_soldier
+	return is_instance_valid(s) and is_instance_valid(s.vehicle) and s.vehicle.kind == "mlrs"
+
+
 func _buttons() -> Array:
 	var s := size
-	return [
-		{"a": "fire", "p": Vector2(s.x - 120, s.y - 140), "r": 60.0, "t": "FIRE"},
-		{"a": "jump", "p": Vector2(s.x - 265, s.y - 90), "r": 42.0, "t": "JUMP"},
-		{"a": "sprint", "p": Vector2(s.x - 290, s.y - 200), "r": 42.0, "t": "RUN"},
-		{"a": "crouch", "p": Vector2(s.x - 200, s.y - 290), "r": 42.0, "t": "DOWN"},
-		{"a": "interact", "p": Vector2(s.x - 90, s.y - 285), "r": 42.0, "t": "E"},
+	var arr := [
+		{"a": "fire", "p": Vector2(s.x - 130, s.y - 130), "r": 62.0, "t": "FIRE"},
+		{"a": "alt", "p": Vector2(s.x - 285, s.y - 100), "r": 40.0, "t": "ALT"},
+		{"a": "jump", "p": Vector2(s.x - 320, s.y - 215), "r": 40.0, "t": "JUMP"},
+		{"a": "sprint", "p": Vector2(s.x - 300, s.y - 320), "r": 38.0, "t": "RUN"},
+		{"a": "crouch", "p": Vector2(s.x - 205, s.y - 330), "r": 38.0, "t": "DOWN"},
+		{"a": "interact", "p": Vector2(s.x - 70, s.y - 285), "r": 38.0, "t": "E"},
+		{"a": "reload", "p": Vector2(s.x - 430, s.y - 90), "r": 36.0, "t": "R"},
 	]
+	if _is_mlrs():
+		arr.append({"a": "map_panel", "p": Vector2(s.x - 430, s.y - 190), "r": 40.0, "t": "MLRS"})
+	return arr
 
 
 func _process(_d: float) -> void:
@@ -35,13 +45,17 @@ func _process(_d: float) -> void:
 func _draw() -> void:
 	if not Cfg.touch_live:
 		return
+	var f := get_theme_default_font()
 	var base := _stick_origin if _stick_id != -1 else Vector2(150, size.y - 150)
-	draw_circle(base, STICK_R, Color(1, 1, 1, 0.10))
-	draw_circle(base + _stick_vec * STICK_R, 38.0, Color(1, 1, 1, 0.30))
+	draw_circle(base, STICK_R, Color(1, 1, 1, 0.08))
+	draw_arc(base, STICK_R, 0.0, TAU, 40, Color(1, 1, 1, 0.25), 2.0)
+	draw_circle(base + _stick_vec * STICK_R, 36.0, Color(1, 1, 1, 0.28))
 	for b in _buttons():
 		var down: bool = _held.values().has(b.a)
-		draw_circle(b.p, b.r, Color(1, 1, 1, 0.30 if down else 0.12))
-		draw_string(ThemeDB.fallback_font, b.p + Vector2(-b.r, 7), b.t, HORIZONTAL_ALIGNMENT_CENTER, b.r * 2.0, 18, Color.WHITE)
+		var col := Color(1.0, 0.75, 0.3, 0.5) if down else Color(1, 1, 1, 0.14)
+		draw_circle(b.p, b.r, col)
+		draw_arc(b.p, b.r, 0.0, TAU, 32, Color(1, 1, 1, 0.35), 2.0)
+		draw_string(f, b.p + Vector2(-b.r, 7), b.t, HORIZONTAL_ALIGNMENT_CENTER, b.r * 2.0, 17, Color.WHITE)
 
 
 func _input(e: InputEvent) -> void:
@@ -110,22 +124,23 @@ func _axis(a: String, s: float) -> void:
 		Input.action_release(a)
 
 
+func _tap(a: String, pressed: bool) -> void:
+	var ev := InputEventAction.new()
+	ev.action = a
+	ev.pressed = pressed
+	Input.parse_input_event(ev)
+
+
 func _press(a: String) -> void:
-	if a == "interact":
-		var ev := InputEventAction.new()
-		ev.action = "interact"
-		ev.pressed = true
-		Input.parse_input_event(ev)
+	if a == "interact" or a == "map_panel" or a == "reload":
+		_tap(a, true)
 	else:
 		Input.action_press(a)
 
 
 func _release(a: String) -> void:
-	if a == "interact":
-		var ev := InputEventAction.new()
-		ev.action = "interact"
-		ev.pressed = false
-		Input.parse_input_event(ev)
+	if a == "interact" or a == "map_panel" or a == "reload":
+		_tap(a, false)
 	else:
 		Input.action_release(a)
 
