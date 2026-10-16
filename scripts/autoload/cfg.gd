@@ -34,10 +34,10 @@ const CLASSES := {
 }
 
 const WEAPONS := {
-	"rifle": {"name": "بندقية هجومية", "dmg": 22.0, "rate": 0.11, "range": 250.0},
-	"sniper": {"name": "بندقية قناصة", "dmg": 95.0, "rate": 1.3, "range": 600.0},
-	"lmg": {"name": "رشاش", "dmg": 17.0, "rate": 0.075, "range": 200.0},
-	"support": {"name": "سلاح دعم", "dmg": 34.0, "rate": 0.25, "range": 220.0},
+	"rifle": {"name": "بندقية هجومية", "dmg": 22.0, "rate": 0.11, "range": 250.0, "mag": 30, "reload": 2.2, "spread": 0.012, "snd": "rifle"},
+	"sniper": {"name": "بندقية قناصة", "dmg": 95.0, "rate": 1.3, "range": 600.0, "mag": 5, "reload": 3.0, "spread": 0.001, "snd": "sniper"},
+	"lmg": {"name": "رشاش", "dmg": 17.0, "rate": 0.075, "range": 200.0, "mag": 100, "reload": 4.5, "spread": 0.03, "snd": "lmg"},
+	"support": {"name": "سلاح دعم", "dmg": 34.0, "rate": 0.25, "range": 220.0, "mag": 12, "reload": 3.0, "spread": 0.015, "snd": "support"},
 }
 
 # مكان الانتشار. cat = فئة حد المركبات ("" = جندي بلا مركبة)
@@ -52,12 +52,15 @@ const KINDS := {
 }
 
 const VSTATS := {
-	"jeep": {"mode": "wheel", "speed": 24.0, "accel": 14.0, "turn": 1.5, "hp": 350.0, "armor": 0.5, "size": Vector3(2.2, 1.6, 4.4), "weapon": "gun", "dmg": 14.0, "rate": 0.1, "ammo": -1, "cam": 9.0},
-	"apc": {"mode": "wheel", "speed": 16.0, "accel": 8.0, "turn": 1.1, "hp": 700.0, "armor": 0.2, "size": Vector3(2.9, 2.0, 6.0), "weapon": "gun", "dmg": 20.0, "rate": 0.1, "ammo": -1, "cam": 11.0},
-	"tank": {"mode": "track", "speed": 11.0, "accel": 5.0, "turn": 0.9, "hp": 1400.0, "armor": 0.06, "size": Vector3(3.4, 1.9, 7.2), "weapon": "cannon", "dmg": 150.0, "rate": 2.2, "ammo": -1, "cam": 14.0, "radius": 5.0},
-	"mlrs": {"mode": "track", "speed": 9.0, "accel": 4.0, "turn": 0.7, "hp": 900.0, "armor": 0.1, "size": Vector3(3.2, 2.4, 7.0), "weapon": "rocket", "dmg": 230.0, "rate": 2.5, "ammo": 12, "cam": 15.0, "radius": 10.0},
-	"heli": {"mode": "heli", "speed": 32.0, "accel": 10.0, "turn": 1.5, "hp": 800.0, "armor": 0.15, "size": Vector3(2.6, 3.0, 9.0), "weapon": "gun", "dmg": 22.0, "rate": 0.08, "ammo": -1, "cam": 16.0, "climb": 12.0},
-	"jet": {"mode": "jet", "speed": 95.0, "min": 38.0, "hp": 600.0, "armor": 0.15, "size": Vector3(8.0, 2.0, 12.0), "weapon": "gun", "dmg": 30.0, "rate": 0.06, "ammo": -1, "cam": 20.0},
+	"jeep": {"mode": "wheel", "speed": 24.0, "accel": 14.0, "turn": 1.5, "hp": 350.0, "armor": 0.5, "size": Vector3(2.3, 1.8, 4.8), "weapon": "gun", "snd": "mg", "dmg": 14.0, "rate": 0.1, "ammo": -1, "cam": 9.0},
+	"apc": {"mode": "track", "speed": 16.0, "accel": 8.0, "turn": 1.1, "hp": 700.0, "armor": 0.2, "size": Vector3(3.0, 2.2, 5.6), "weapon": "gun", "snd": "mg", "dmg": 20.0, "rate": 0.1, "ammo": -1, "cam": 11.0},
+	"tank": {"mode": "track", "speed": 11.0, "accel": 5.0, "turn": 0.9, "hp": 1400.0, "armor": 0.06, "size": Vector3(3.4, 2.0, 7.2), "weapon": "cannon", "snd": "cannon", "dmg": 150.0, "rate": 2.2, "ammo": -1, "cam": 14.0, "radius": 5.0,
+		"alt": "mg", "alt_dmg": 12.0, "alt_rate": 0.09, "alt_ammo": -1},
+	"mlrs": {"mode": "track", "speed": 9.0, "accel": 4.0, "turn": 0.7, "hp": 900.0, "armor": 0.1, "size": Vector3(3.2, 2.6, 7.0), "weapon": "rocket", "snd": "rocket", "dmg": 230.0, "rate": 1.4, "ammo": 12, "cam": 15.0, "radius": 10.0},
+	"heli": {"mode": "heli", "speed": 32.0, "accel": 10.0, "turn": 1.5, "hp": 800.0, "armor": 0.15, "size": Vector3(2.6, 3.0, 9.0), "weapon": "gun", "snd": "mg", "dmg": 22.0, "rate": 0.08, "ammo": -1, "cam": 16.0, "climb": 12.0,
+		"alt": "rocket", "alt_dmg": 110.0, "alt_rate": 0.8, "alt_ammo": 14, "alt_radius": 5.0},
+	"jet": {"mode": "jet", "speed": 95.0, "min": 38.0, "hp": 600.0, "armor": 0.15, "size": Vector3(8.0, 2.0, 12.0), "weapon": "gun", "snd": "mg", "dmg": 30.0, "rate": 0.06, "ammo": -1, "cam": 20.0,
+		"alt": "rocket", "alt_dmg": 140.0, "alt_rate": 0.6, "alt_ammo": 8, "alt_radius": 6.0},
 }
 
 
@@ -87,6 +90,7 @@ func _setup_input() -> void:
 	var keys := {
 		"move_fwd": KEY_W, "move_back": KEY_S, "move_left": KEY_A, "move_right": KEY_D,
 		"jump": KEY_SPACE, "sprint": KEY_SHIFT, "crouch": KEY_CTRL, "interact": KEY_E,
+		"reload": KEY_R, "map_panel": KEY_M, "alt": KEY_Q,
 	}
 	for a in keys:
 		if not InputMap.has_action(a):
@@ -100,3 +104,6 @@ func _setup_input() -> void:
 		var mb := InputEventMouseButton.new()
 		mb.button_index = MOUSE_BUTTON_LEFT
 		InputMap.action_add_event("fire", mb)
+		var mr := InputEventMouseButton.new()
+		mr.button_index = MOUSE_BUTTON_RIGHT
+		InputMap.action_add_event("alt", mr)
