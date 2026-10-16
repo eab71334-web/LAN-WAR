@@ -1,14 +1,15 @@
 extends CharacterBody3D
-## مركبة واحدة بسكربت واحد: جيب / ناقلة / دبابة / راجمة / مروحية / طائرة.
-## المحاكاة كلها على المضيف. السائق يرسل مدخلاته فقط، والموقع يُزامَن للجميع.
+## مركبة واحدة بسكربت واحد: جيب / ناقلة / دبابة / راجمة M270 / مروحية / طائرة.
+## المحاكاة والأسلحة كلها على المضيف. السائق يرسل مدخلاته فقط، والموقع يُزامَن للجميع.
 
-const Fx := preload("res://scripts/match/fx.gd")
+const VM := preload("res://scripts/models/vehicle_models.gd")
 
 var kind := "jeep"
 var team := 0
 var driver := 0
 var health := 100.0
 var ammo := -1
+var alt_ammo := -1
 var cur_speed := 0.0
 var st: Dictionary
 
@@ -19,20 +20,24 @@ var in_pitch := 0.0
 var in_roll := 0.0
 var in_aim_yaw := 0.0
 var in_fire := false
+var in_alt := false
 var in_orig := Vector3.ZERO
 var in_dir := Vector3.FORWARD
 
 var _throttle := 0.6
 var _next_fire := 0.0
+var _next_alt := 0.0
 var _reload := 0.0
 var _dead := false
+var _last_yaw := 0.0
 var _rig: Node3D
 var _arm: SpringArm3D
 var _cam: Camera3D
 var _cam_yaw := 0.0
 var _cam_pitch := -0.25
+var _eng: AudioStreamPlayer3D
 var turret: Node3D
-var rotor: Node3D
+var _m := {}
 
 
 func setup(d: Dictionary) -> void:
@@ -45,7 +50,9 @@ func setup(d: Dictionary) -> void:
 	st = Cfg.VSTATS[kind]
 	health = st.hp
 	ammo = int(st.ammo)
+	alt_ammo = int(st.get("alt_ammo", -1))
 	_cam_yaw = rotation.y
+	_last_yaw = rotation.y
 
 
 func _ready() -> void:
@@ -61,12 +68,15 @@ func _ready() -> void:
 	turret = Node3D.new()
 	turret.name = "Turret"
 	add_child(turret)
-	_build_mesh()
+	_m = VM.build(self, turret, kind, Cfg.TEAMS[team].color)
 
 	var sy := MultiplayerSynchronizer.new()
 	sy.name = "Sync"
 	var rc := SceneReplicationConfig.new()
-	for p in [".:position", ".:rotation", "Turret:rotation", ".:health", ".:ammo", ".:cur_speed"]:
+	var paths := [".:position", ".:rotation", "Turret:rotation", ".:health", ".:ammo", ".:alt_ammo", ".:cur_speed"]
+	if _m.gun:
+		paths.append("Turret/Gun:rotation")
+	for p in paths:
 		rc.add_property(NodePath(p))
 		rc.property_set_replication_mode(NodePath(p), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
 	sy.replication_config = rc
@@ -83,97 +93,27 @@ func _ready() -> void:
 	_cam.far = 1500.0
 	_arm.add_child(_cam)
 
-
-# ---------- الشكل (أشكال بدائية؛ استبدلها بنماذج glb لاحقًا) ----------
-
-func _box(parent: Node3D, size: Vector3, pos: Vector3, col: Color, rot := Vector3.ZERO) -> MeshInstance3D:
-	var m := MeshInstance3D.new()
-	var b := BoxMesh.new()
-	b.size = size
-	m.mesh = b
-	m.position = pos
-	m.rotation = rot
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = col
-	m.material_override = mat
-	parent.add_child(m)
-	return m
-
-
-func _wheel(pos: Vector3, r := 0.45) -> void:
-	var m := MeshInstance3D.new()
-	var c := CylinderMesh.new()
-	c.top_radius = r
-	c.bottom_radius = r
-	c.height = 0.35
-	m.mesh = c
-	m.position = pos
-	m.rotation.z = PI / 2.0
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.08, 0.08, 0.08)
-	m.material_override = mat
-	add_child(m)
-
-
-func _build_mesh() -> void:
-	var hull := Color(0.30, 0.34, 0.24).lerp(Cfg.TEAMS[team].color, 0.35)
-	var dark := Color(0.1, 0.1, 0.1)
-	match kind:
-		"jeep":
-			_box(self, Vector3(2.0, 0.8, 4.2), Vector3(0, 0.9, 0), hull)
-			_box(self, Vector3(1.8, 0.7, 1.8), Vector3(0, 1.6, 0.4), hull.darkened(0.1))
-			for x in [-1.1, 1.1]:
-				for z in [-1.4, 1.4]:
-					_wheel(Vector3(x, 0.45, z))
-			_box(self, Vector3(0.12, 0.12, 1.2), Vector3(0, 2.1, -0.2), dark)
-		"apc":
-			_box(self, Vector3(2.8, 1.4, 6.0), Vector3(0, 1.2, 0), hull)
-			for x in [-1.4, 1.4]:
-				for z in [-2.2, 0.0, 2.2]:
-					_wheel(Vector3(x, 0.55, z), 0.55)
-			turret.position = Vector3(0, 2.2, -0.5)
-			_box(turret, Vector3(1.4, 0.6, 1.8), Vector3.ZERO, hull.darkened(0.1))
-			_box(turret, Vector3(0.15, 0.15, 2.0), Vector3(0, 0.1, -1.6), dark)
-		"tank":
-			for x in [-1.4, 1.4]:
-				_box(self, Vector3(0.8, 1.0, 7.0), Vector3(x, 0.55, 0), dark)
-			_box(self, Vector3(2.6, 0.9, 6.4), Vector3(0, 1.15, 0), hull)
-			turret.position = Vector3(0, 1.9, 0.3)
-			_box(turret, Vector3(2.2, 0.8, 3.0), Vector3.ZERO, hull.darkened(0.1))
-			_box(turret, Vector3(0.22, 0.22, 4.2), Vector3(0, 0.1, -3.2), dark)
-		"mlrs":
-			for x in [-1.4, 1.4]:
-				_box(self, Vector3(0.8, 1.0, 7.0), Vector3(x, 0.55, 0), dark)
-			_box(self, Vector3(2.8, 1.1, 6.2), Vector3(0, 1.1, 0), hull)
-			_box(self, Vector3(2.4, 1.2, 1.8), Vector3(0, 2.0, -2.2), hull.darkened(0.1))
-			turret.position = Vector3(0, 2.1, 1.2)
-			_box(turret, Vector3(2.6, 0.5, 4.0), Vector3.ZERO, hull.darkened(0.15), Vector3(0.5, 0, 0))
-			_box(turret, Vector3(2.3, 0.35, 3.6), Vector3(0, 0.25, 0), dark, Vector3(0.5, 0, 0))
-		"heli":
-			_box(self, Vector3(2.0, 2.0, 6.0), Vector3(0, 1.6, 0), hull)
-			_box(self, Vector3(1.6, 1.4, 1.8), Vector3(0, 1.3, -3.6), hull.darkened(0.15))
-			_box(self, Vector3(0.6, 0.6, 5.0), Vector3(0, 2.0, 5.2), hull)
-			_box(self, Vector3(0.2, 1.6, 1.0), Vector3(0, 2.7, 7.4), hull)
-			for x in [-1.1, 1.1]:
-				_box(self, Vector3(0.15, 0.15, 4.5), Vector3(x, 0.3, 0), dark)
-			rotor = Node3D.new()
-			rotor.position = Vector3(0, 2.9, 0)
-			add_child(rotor)
-			_box(rotor, Vector3(13, 0.08, 0.45), Vector3.ZERO, dark)
-			_box(rotor, Vector3(0.45, 0.08, 13), Vector3.ZERO, dark)
-		"jet":
-			_box(self, Vector3(1.3, 1.1, 11.0), Vector3(0, 1.0, 0), hull)
-			_box(self, Vector3(0.8, 0.8, 3.0), Vector3(0, 1.0, -6.8), hull.lightened(0.15))
-			_box(self, Vector3(9.0, 0.15, 3.5), Vector3(0, 0.9, 1.5), hull.darkened(0.1))
-			_box(self, Vector3(4.0, 0.12, 1.8), Vector3(0, 1.0, 4.8), hull.darkened(0.1))
-			_box(self, Vector3(0.15, 1.6, 2.0), Vector3(0, 2.0, 4.5), hull)
-			_box(self, Vector3(0.7, 0.5, 2.0), Vector3(0, 1.7, -1.5), Color(0.4, 0.6, 0.8))
+	_eng = AudioStreamPlayer3D.new()
+	var sname := "engine_diesel"
+	if st.mode == "heli":
+		sname = "engine_heli"
+	elif st.mode == "jet":
+		sname = "engine_jet"
+	_eng.stream = Sfx.stream(sname)
+	_eng.unit_size = 14.0
+	_eng.max_distance = 170.0
+	_eng.volume_db = -3.0
+	add_child(_eng)
 
 
 # ---------- السائق ----------
 
 func _is_me() -> bool:
 	return driver != 0 and driver == multiplayer.get_unique_id()
+
+
+func cam_node() -> Camera3D:
+	return _cam
 
 
 @rpc("authority", "call_local", "reliable")
@@ -190,8 +130,33 @@ func _unhandled_input(e: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
-	if rotor:
-		rotor.rotate_y(delta * (28.0 if driver != 0 else 2.0))
+	# ---- مؤثرات بصرية على كل الأجهزة ----
+	if st.mode != "heli":
+		for w in _m.wheels:
+			(w as Node3D).rotate_x(-cur_speed * delta / 0.4)
+	if _m.rotor:
+		(_m.rotor as Node3D).rotate_y(delta * (32.0 if driver != 0 else 4.0))
+	if _m.tail:
+		(_m.tail as Node3D).rotate_x(delta * (40.0 if driver != 0 else 5.0))
+	if _m.burner:
+		var ratio := clampf((cur_speed - float(st.min)) / (float(st.speed) - float(st.min)), 0.0, 1.0)
+		(_m.burner as Node3D).scale.y = 0.25 + ratio
+	if st.mode == "heli" and _m.body:
+		var b: Node3D = _m.body
+		var yr := wrapf(rotation.y - _last_yaw, -PI, PI) / maxf(delta, 0.001)
+		b.rotation.x = lerpf(b.rotation.x, -clampf(cur_speed / float(st.speed), 0.0, 1.0) * 0.2, minf(delta * 3.0, 1.0))
+		b.rotation.z = lerpf(b.rotation.z, clampf(yr * 0.25, -0.35, 0.35), minf(delta * 3.0, 1.0))
+	_last_yaw = rotation.y
+	var want := driver != 0 or absf(cur_speed) > 1.0
+	if _eng.stream:
+		if want and not _eng.playing:
+			_eng.play()
+		elif not want and _eng.playing:
+			_eng.stop()
+		var ratio2 := clampf(absf(cur_speed) / maxf(float(st.speed), 1.0), 0.0, 1.0)
+		_eng.pitch_scale = (1.0 + ratio2 * 0.3) if st.mode == "heli" else (0.7 + ratio2 * 0.8)
+
+	# ---- كاميرا السائق ----
 	var me := _is_me()
 	_cam.current = me
 	if not me:
@@ -213,24 +178,25 @@ func _physics_process(delta: float) -> void:
 
 
 func _send_input() -> void:
-	var cap := Cfg.input_live()
-	var thr := Input.get_axis("move_back", "move_fwd") if cap else 0.0
-	var strv := Input.get_axis("move_left", "move_right") if cap else 0.0
+	var live := Cfg.input_live()
+	var thr := Input.get_axis("move_back", "move_fwd") if live else 0.0
+	var strv := Input.get_axis("move_left", "move_right") if live else 0.0
 	var lift := 0.0
 	var pitch := 0.0
 	var roll := 0.0
-	if cap and kind == "heli":
+	if live and kind == "heli":
 		lift = Input.get_axis("crouch", "jump")
-	if cap and kind == "jet":
+	if live and kind == "jet":
 		lift = Input.get_axis("crouch", "sprint")
 		pitch = Input.get_axis("move_fwd", "move_back")
 		roll = strv
-	var fire := cap and Input.is_action_pressed("fire")
-	_input_rpc.rpc_id(1, thr, strv, lift, pitch, roll, _cam_yaw, fire, _cam.global_position, -_cam.global_transform.basis.z)
+	var fire := live and Input.is_action_pressed("fire")
+	var alt := live and Input.is_action_pressed("alt")
+	_input_rpc.rpc_id(1, thr, strv, lift, pitch, roll, _cam_yaw, fire, alt, _cam.global_position, -_cam.global_transform.basis.z)
 
 
 @rpc("any_peer", "call_local", "unreliable_ordered")
-func _input_rpc(thr: float, strv: float, lift: float, pitch: float, roll: float, aim_yaw: float, fire: bool, o: Vector3, d: Vector3) -> void:
+func _input_rpc(thr: float, strv: float, lift: float, pitch: float, roll: float, aim_yaw: float, fire: bool, alt: bool, o: Vector3, d: Vector3) -> void:
 	if not multiplayer.is_server():
 		return
 	var s := multiplayer.get_remote_sender_id()
@@ -245,6 +211,7 @@ func _input_rpc(thr: float, strv: float, lift: float, pitch: float, roll: float,
 	in_roll = clampf(roll, -1.0, 1.0)
 	in_aim_yaw = aim_yaw
 	in_fire = fire
+	in_alt = alt
 	in_orig = o
 	in_dir = d
 
@@ -261,13 +228,20 @@ func _simulate(delta: float) -> void:
 		in_pitch = 0.0
 		in_roll = 0.0
 		in_fire = false
+		in_alt = false
 	match str(st.mode):
 		"wheel", "track": _sim_ground(delta)
 		"heli": _sim_heli(delta)
 		"jet": _sim_jet(delta)
-	if turret and (kind == "tank" or kind == "apc") and driver != 0:
+	if driver != 0 and (kind == "tank" or kind == "apc"):
 		var target := wrapf(in_aim_yaw - rotation.y, -PI, PI)
 		turret.rotation.y = lerp_angle(turret.rotation.y, target, minf(1.0, delta * 3.0))
+		if _m.gun and in_dir.length() > 0.5:
+			var g: Node3D = _m.gun
+			var el := clampf(asin(clampf(in_dir.normalized().y, -1.0, 1.0)), -0.12, 0.35)
+			g.rotation.x = lerpf(g.rotation.x, el, minf(1.0, delta * 3.0))
+	if driver != 0 and kind == "jeep":
+		turret.rotation.y = lerp_angle(turret.rotation.y, wrapf(in_aim_yaw - rotation.y, -PI, PI), minf(1.0, delta * 4.0))
 	_fire_logic(delta)
 
 
@@ -310,40 +284,64 @@ func _sim_jet(delta: float) -> void:
 		take_damage(99999.0, 0, true)
 
 
+# ---------- الأسلحة ----------
+
 func _cast(o: Vector3, d: Vector3, length: float) -> Dictionary:
 	var q := PhysicsRayQueryParameters3D.create(o, o + d * length)
 	q.exclude = [get_rid()]
 	return get_world_3d().direct_space_state.intersect_ray(q)
 
 
-func _fire_logic(delta: float) -> void:
-	_next_fire -= delta
-	if ammo == 0:
-		_reload -= delta
-		if _reload <= 0.0:
-			ammo = int(st.ammo)
-	if not in_fire or driver == 0 or _next_fire > 0.0 or ammo == 0:
-		return
-	_next_fire = float(st.rate)
-	if ammo > 0:
-		ammo -= 1
-		if ammo == 0:
-			_reload = 8.0
-	var size: Vector3 = st.size
-	var o := global_position + Vector3.UP * size.y * 0.8 - global_transform.basis.z * size.z * 0.35
+func _muzzle() -> Vector3:
+	var tip = _m.tip
+	if tip:
+		return (tip as Node3D).global_position
+	return global_position + Vector3.UP * float(st.size.y) * 0.8 - global_transform.basis.z * float(st.size.z) * 0.35
+
+
+## يرجع [المصدر، الاتجاه، نقطة الإصابة (أو الأفق)، نتيجة الشعاع]
+func _aim() -> Array:
+	var o := _muzzle()
 	var d: Vector3
 	if kind == "jet":
 		d = -global_transform.basis.z
 	else:
 		var co := in_orig
-		if co.distance_to(global_position) > 40.0 or in_dir.length() < 0.5:
+		var cd := in_dir
+		if co.distance_to(global_position) > 40.0 or cd.length() < 0.5:
 			co = o
-		var cd := in_dir.normalized() if in_dir.length() > 0.5 else -global_transform.basis.z
+			cd = -global_transform.basis.z
+		cd = cd.normalized()
 		var h0 := _cast(co, cd, 1200.0)
 		var tgt: Vector3 = co + cd * 1200.0 if h0.is_empty() else h0.position
 		d = (tgt - o).normalized()
 	var hit := _cast(o, d, 1200.0)
 	var end: Vector3 = o + d * 1200.0 if hit.is_empty() else hit.position
+	return [o, d, end, hit]
+
+
+func _fire_logic(delta: float) -> void:
+	_next_fire -= delta
+	_next_alt -= delta
+	if ammo == 0:
+		_reload -= delta
+		if _reload <= 0.0:
+			ammo = int(st.ammo)
+	if driver == 0:
+		return
+	if in_fire and _next_fire <= 0.0 and ammo != 0:
+		_primary()
+	if in_alt and st.has("alt") and _next_alt <= 0.0 and alt_ammo != 0:
+		_secondary()
+
+
+func _primary() -> void:
+	_next_fire = float(st.rate)
+	var a := _aim()
+	var o: Vector3 = a[0]
+	var d: Vector3 = a[1]
+	var end: Vector3 = a[2]
+	var hit: Dictionary = a[3]
 	var m = get_tree().current_scene
 	var mult := float(Net.settings.damage)
 	match str(st.weapon):
@@ -352,10 +350,79 @@ func _fire_logic(delta: float) -> void:
 				var c = hit.collider
 				if c.has_method("take_damage") and c.get("team") != team:
 					c.take_damage(float(st.dmg) * mult, driver, false)
-			m.tracer.rpc(o, end)
-		_:
+			m.tracer.rpc(o, end, str(st.snd))
+		"cannon":
 			m.explode(end, float(st.radius), float(st.dmg) * mult, driver, team)
-			m.tracer.rpc(o, end)
+			m.tracer.rpc(o, end, "cannon")
+		"rocket":
+			var n := mini(2, ammo)
+			ammo -= n
+			if ammo == 0:
+				_reload = 10.0
+			var tgt := end
+			if o.distance_to(tgt) < 40.0:
+				tgt = o + Vector3(d.x, 0.0, d.z).normalized() * 60.0
+			for i in n:
+				_launch_rocket(o + Vector3(0, 0.0, 0.0), tgt + Vector3(randf_range(-4, 4), 0, randf_range(-4, 4)), 150.0, 0.38, float(st.radius), float(st.dmg))
+
+
+func _secondary() -> void:
+	_next_alt = float(st.alt_rate)
+	if alt_ammo > 0:
+		alt_ammo -= 1
+	var a := _aim()
+	var o: Vector3 = a[0]
+	var end: Vector3 = a[2]
+	var hit: Dictionary = a[3]
+	var m = get_tree().current_scene
+	match str(st.alt):
+		"mg":
+			if not hit.is_empty():
+				var c = hit.collider
+				if c.has_method("take_damage") and c.get("team") != team:
+					c.take_damage(float(st.alt_dmg) * float(Net.settings.damage), driver, false)
+			m.tracer.rpc(o + Vector3.UP * 0.6, end, "mg")
+		"rocket":
+			_launch_rocket(o + Vector3.DOWN * 0.4, end, 220.0, 0.0, float(st.alt_radius), float(st.alt_dmg))
+
+
+func _launch_rocket(o: Vector3, tgt: Vector3, speed: float, arc: float, radius: float, dmg: float) -> void:
+	var m = get_tree().current_scene
+	var dist := o.distance_to(tgt)
+	var t := maxf(dist / speed, 0.25)
+	m.rocket_fx.rpc(o, tgt, t, dist * arc)
+	var mult := float(Net.settings.damage)
+	m.get_tree().create_timer(t).timeout.connect(m.explode.bind(tgt, radius, dmg * mult, driver, team))
+
+
+@rpc("any_peer", "call_local", "reliable")
+func mlrs_launch(x: float, z: float, delay: float, count: int) -> void:
+	if not multiplayer.is_server() or kind != "mlrs" or _dead:
+		return
+	var s := multiplayer.get_remote_sender_id()
+	if s == 0:
+		s = 1
+	if s != driver:
+		return
+	var cx := clampf(x, -300.0, 300.0)
+	var cz := clampf(z, -300.0, 300.0)
+	var gy := 0.0
+	var h := _cast(Vector3(cx, 300.0, cz), Vector3.DOWN, 400.0)
+	if not h.is_empty():
+		gy = h.position.y
+	var tgt := Vector3(cx, gy, cz)
+	var dl := clampf(delay, 0.0, 60.0)
+	for i in clampi(count, 1, 12):
+		get_tree().create_timer(dl + i * 0.3).timeout.connect(_salvo_one.bind(tgt))
+
+
+func _salvo_one(tgt: Vector3) -> void:
+	if _dead or ammo == 0 or driver == 0:
+		return
+	ammo -= 1
+	if ammo == 0:
+		_reload = 10.0
+	_launch_rocket(_muzzle(), tgt + Vector3(randf_range(-7, 7), 0, randf_range(-7, 7)), 150.0, 0.38, float(st.radius), float(st.dmg))
 
 
 func take_damage(amount: float, attacker: int, explosive := false) -> void:
@@ -368,10 +435,10 @@ func take_damage(amount: float, attacker: int, explosive := false) -> void:
 		queue_free()
 
 
-func hud_text() -> String:
-	var s := "%s\nالسرعة: %d كم/س\nالمركبة: %d%%" % [Cfg.KINDS[kind].name, int(cur_speed * 3.6), int(100.0 * health / float(st.hp))]
-	if kind == "heli" or kind == "jet":
-		s += "\nالارتفاع: %d م" % int(global_position.y)
-	if ammo >= 0:
-		s += "\nالذخيرة: %d" % ammo
-	return s
+func hud_data() -> Dictionary:
+	return {
+		"name": Cfg.KINDS[kind].name, "kind": kind, "kmh": int(cur_speed * 3.6),
+		"hp": clampf(health / float(st.hp), 0.0, 1.0), "alt": global_position.y,
+		"ammo": ammo, "alt_ammo": alt_ammo if st.has("alt") else -2,
+		"air": st.mode == "heli" or st.mode == "jet",
+	}
