@@ -6,6 +6,7 @@ const SoldierS := preload("res://scripts/player/soldier.gd")
 const VehicleS := preload("res://scripts/vehicles/vehicle.gd")
 const Fx := preload("res://scripts/match/fx.gd")
 const UI := preload("res://scripts/ui/ui.gd")
+const HudS := preload("res://scripts/ui/hud.gd")
 const TouchS := preload("res://scripts/ui/touch_controls.gd")
 
 var local_soldier = null
@@ -22,10 +23,7 @@ var dead_until := {}
 var serial := 0
 var respawn_left := 0.0
 
-var _hud_health: Label
-var _hud_vehicle: Label
-var _hud_scores: Label
-var _hud_msg: Label
+var hud: Control
 var _loadout: PanelContainer
 var _cls_opt: OptionButton
 var _wpn_opt: OptionButton
@@ -59,6 +57,10 @@ func _ready() -> void:
 	_announce_loop()
 	if multiplayer.is_server():
 		_server_timeout()
+
+
+func _exit_tree() -> void:
+	Cfg.touch_live = false
 
 
 # ---------- التحميل المتزامن ----------
@@ -138,7 +140,6 @@ func request_deploy(cls: String, weapon: String, kind: String) -> void:
 		return
 	var team: int = Net.players[id].team
 	var cat: String = Cfg.KINDS[kind].cat
-	# المضيف هو المرجع لحدود المركبات
 	if cat != "" and int(vcount.get(cat, 0)) >= int(Net.settings.limits.get(cat, 0)):
 		_notice.rpc_id(id, "هذه المركبة غير متوفرة الآن، اختر مركبة أخرى أو انتظر")
 		return
@@ -175,10 +176,7 @@ func _counts(c: Dictionary) -> void:
 @rpc("authority", "call_local", "reliable")
 func _notice(msg: String) -> void:
 	_loadout_msg.text = msg
-	_hud_msg.text = msg
-	await get_tree().create_timer(3.0).timeout
-	if _hud_msg.text == msg:
-		_hud_msg.text = ""
+	hud.notice(msg)
 
 
 # ---------- القتال والنتائج ----------
@@ -209,7 +207,7 @@ func vehicle_destroyed(v, attacker: int) -> void:
 		var s = player_entity.get(v.driver)
 		if is_instance_valid(s):
 			s.take_damage(99999.0, attacker, true)
-	explode(v.global_position, 8.0, 160.0, attacker, v.team)
+	explode(v.global_position, 9.0, 160.0, attacker, v.team)
 
 
 func explode(pos: Vector3, radius: float, dmg: float, attacker: int, atk_team: int) -> void:
@@ -223,13 +221,23 @@ func explode(pos: Vector3, radius: float, dmg: float, attacker: int, atk_team: i
 
 
 @rpc("authority", "call_local", "unreliable")
-func tracer(a: Vector3, b: Vector3) -> void:
-	Fx.tracer(get_tree(), a, b)
+func tracer(a: Vector3, b: Vector3, kind: String) -> void:
+	Fx.tracer(get_tree(), a, b, kind)
+
+
+@rpc("authority", "call_local", "reliable")
+func rocket_fx(a: Vector3, b: Vector3, t: float, h: float) -> void:
+	Fx.rocket(get_tree(), a, b, t, h)
 
 
 @rpc("authority", "call_local", "unreliable")
 func _boom(pos: Vector3, radius: float) -> void:
 	Fx.explosion(get_tree(), pos, radius)
+
+
+@rpc("authority", "call_local", "unreliable")
+func _hitmark() -> void:
+	hud.hitmark()
 
 
 @rpc("authority", "call_local", "reliable")
@@ -240,7 +248,7 @@ func _sync_scores(s: Dictionary) -> void:
 @rpc("authority", "call_local", "reliable")
 func _you_died(secs: float) -> void:
 	respawn_left = secs
-	_show_loadout("تم إقصاؤك — العودة بعد %d ثوانٍ" % int(secs))
+	_show_loadout("تم إقصاؤك")
 
 
 @rpc("authority", "call_local", "reliable")
@@ -274,53 +282,26 @@ func on_local_spawn() -> void:
 
 # ---------- الواجهة ----------
 
-func _label(t := "", size := 22) -> Label:
-	var l := UI.label(t, size)
-	l.add_theme_color_override("font_outline_color", Color.BLACK)
-	l.add_theme_constant_override("outline_size", 4)
-	return l
-
-
 func _build_ui() -> void:
 	var cl := CanvasLayer.new()
 	add_child(cl)
 	var root := Control.new()
 	UI.full_rect(root)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.theme = UI.make_theme()
 	cl.add_child(root)
+
+	hud = HudS.new()
+	UI.full_rect(hud)
+	root.add_child(hud)
 	if Cfg.is_mobile:
 		var tc := TouchS.new()
 		UI.full_rect(tc)
 		root.add_child(tc)
 
-	_hud_scores = _label()
-	root.add_child(_hud_scores)
-	_hud_scores.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 10)
-	_hud_scores.grow_horizontal = Control.GROW_DIRECTION_BOTH
-
-	_hud_health = _label()
-	root.add_child(_hud_health)
-	_hud_health.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE, 20)
-	_hud_health.grow_vertical = Control.GROW_DIRECTION_BEGIN
-
-	_hud_vehicle = _label()
-	root.add_child(_hud_vehicle)
-	_hud_vehicle.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 20)
-	_hud_vehicle.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_hud_vehicle.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-
-	var cross := _label("+", 28)
-	root.add_child(cross)
-	cross.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-
-	_hud_msg = _label("", 24)
-	root.add_child(_hud_msg)
-	_hud_msg.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 50)
-	_hud_msg.grow_horizontal = Control.GROW_DIRECTION_BOTH
-
 	_loadout = PanelContainer.new()
 	root.add_child(_loadout)
-	_loadout.custom_minimum_size = Vector2(440, 0)
+	_loadout.custom_minimum_size = Vector2(460, 0)
 	_loadout.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_loadout.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_loadout.grow_vertical = Control.GROW_DIRECTION_BOTH
@@ -329,9 +310,10 @@ func _build_ui() -> void:
 	v.add_theme_constant_override("separation", 8)
 	_loadout.add_child(v)
 	var my_team: int = Net.players.get(multiplayer.get_unique_id(), {"team": 0}).team
-	var tl := UI.label("تجهيز اللاعب — " + Cfg.TEAMS[my_team].name, 22)
-	tl.modulate = Cfg.TEAMS[my_team].color.lightened(0.4)
+	var tl := UI.label("تجهيز اللاعب — " + Cfg.TEAMS[my_team].name, 24)
+	tl.modulate = Cfg.TEAMS[my_team].color.lightened(0.45)
 	v.add_child(tl)
+	v.add_child(HSeparator.new())
 	v.add_child(UI.label("فئة الجندي", 16))
 	_cls_opt = OptionButton.new()
 	for k in Cfg.CLASSES:
@@ -385,7 +367,6 @@ func _refresh_kinds() -> void:
 		var k: String = _kind_keys[i]
 		var cat: String = Cfg.KINDS[k].cat
 		if cat == "":
-			_kind_opt.set_item_text(i, Cfg.KINDS[k].name)
 			continue
 		var lim := int(Net.settings.limits.get(cat, 0))
 		var used := int(vcount.get(cat, 0))
@@ -405,30 +386,15 @@ func _process(delta: float) -> void:
 			_loadout_msg.text = "العودة بعد %d ثوانٍ" % ceili(respawn_left)
 		else:
 			_loadout_msg.text = ""
-	var parts := []
-	for t in scores:
-		parts.append("%s: %d" % [Cfg.TEAMS[t].name, scores[t]])
-	_hud_scores.text = "  |  ".join(parts) + "   (الفوز عند %d)" % int(Net.settings.win_score)
-	var s = local_soldier
-	if is_instance_valid(s):
-		_hud_health.text = "الصحة: %d" % int(s.health)
-		_hud_vehicle.text = s.vehicle.hud_text() if is_instance_valid(s.vehicle) else ""
-	else:
-		_hud_health.text = ""
-		_hud_vehicle.text = ""
 
 
 func _unhandled_input(e: InputEvent) -> void:
-	if e.is_action_pressed("ui_cancel"):
+	if e.is_action_pressed("ui_cancel") and not hud.panel_open():
 		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		elif is_instance_valid(local_soldier) and not game_over:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	elif e is InputEventMouseButton and e.pressed and is_instance_valid(local_soldier) and not game_over and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+	elif e is InputEventMouseButton and e.pressed and is_instance_valid(local_soldier) and not game_over and not hud.panel_open() and not Cfg.is_mobile and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	if e is InputEventKey and e.pressed and e.keycode == KEY_F10 and Net.is_host:
 		Net.end_match()
-
-
-func _exit_tree() -> void:
-	Cfg.touch_live = false
