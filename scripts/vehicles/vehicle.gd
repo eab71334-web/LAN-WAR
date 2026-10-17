@@ -3,6 +3,9 @@ extends CharacterBody3D
 ## المحاكاة والأسلحة كلها على المضيف. السائق يرسل مدخلاته فقط، والموقع يُزامَن للجميع.
 
 const VM := preload("res://scripts/models/vehicle_models.gd")
+const M := preload("res://scripts/models/mats.gd")
+const P := preload("res://scripts/models/parts.gd")
+const Fx := preload("res://scripts/match/fx.gd")
 
 var kind := "jeep"
 var team := 0
@@ -29,6 +32,11 @@ var _next_fire := 0.0
 var _next_alt := 0.0
 var _reload := 0.0
 var _dead := false
+var released := false
+var _crashing := false
+var _crash_v := Vector3.ZERO
+var _wreck := false
+var _trk: AudioStreamPlayer3D
 var _last_yaw := 0.0
 var _rig: Node3D
 var _arm: SpringArm3D
@@ -104,6 +112,13 @@ func _ready() -> void:
 	_eng.max_distance = 170.0
 	_eng.volume_db = -3.0
 	add_child(_eng)
+	if st.mode == "track":
+		_trk = AudioStreamPlayer3D.new()
+		_trk.stream = Sfx.stream("tracks")
+		_trk.unit_size = 12.0
+		_trk.max_distance = 120.0
+		_trk.volume_db = -5.0
+		add_child(_trk)
 
 
 # ---------- السائق ----------
@@ -118,6 +133,8 @@ func cam_node() -> Camera3D:
 
 @rpc("authority", "call_local", "reliable")
 func set_driver(p: int) -> void:
+	if p != driver:
+		Sfx.play3d("door", global_position + Vector3.UP, -4.0, 1.0, 60.0)
 	driver = p
 
 
@@ -125,8 +142,8 @@ func _unhandled_input(e: InputEvent) -> void:
 	if not _is_me() or kind == "jet":
 		return
 	if e is InputEventMouseMotion and e.device != InputEvent.DEVICE_ID_EMULATION and Cfg.input_live():
-		_cam_yaw -= e.relative.x * 0.0025
-		_cam_pitch = clampf(_cam_pitch - e.relative.y * 0.0025, -1.3, 0.6)
+		_cam_yaw -= e.relative.x * 0.0025 * float(Cfg.opts.sens)
+		_cam_pitch = clampf(_cam_pitch - e.relative.y * 0.0025 * float(Cfg.opts.sens), -1.3, 0.6)
 
 
 func _process(delta: float) -> void:
@@ -134,9 +151,9 @@ func _process(delta: float) -> void:
 	if st.mode != "heli":
 		for w in _m.wheels:
 			(w as Node3D).rotate_x(-cur_speed * delta / 0.4)
-	if _m.rotor:
+	if _m.rotor and not _wreck:
 		(_m.rotor as Node3D).rotate_y(delta * (32.0 if driver != 0 else 4.0))
-	if _m.tail:
+	if _m.tail and not _wreck:
 		(_m.tail as Node3D).rotate_x(delta * (40.0 if driver != 0 else 5.0))
 	if _m.burner:
 		var ratio := clampf((cur_speed - float(st.min)) / (float(st.speed) - float(st.min)), 0.0, 1.0)
@@ -147,7 +164,14 @@ func _process(delta: float) -> void:
 		b.rotation.x = lerpf(b.rotation.x, -clampf(cur_speed / float(st.speed), 0.0, 1.0) * 0.2, minf(delta * 3.0, 1.0))
 		b.rotation.z = lerpf(b.rotation.z, clampf(yr * 0.25, -0.35, 0.35), minf(delta * 3.0, 1.0))
 	_last_yaw = rotation.y
-	var want := driver != 0 or absf(cur_speed) > 1.0
+	var want := (driver != 0 or absf(cur_speed) > 1.0) and not _wreck
+	if _trk and _trk.stream:
+		var tw_ := absf(cur_speed) > 1.2 and not _wreck
+		if tw_ and not _trk.playing:
+			_trk.play()
+		elif not tw_ and _trk.playing:
+			_trk.stop()
+		_trk.pitch_scale = 0.8 + clampf(absf(cur_speed) / maxf(float(st.speed), 1.0), 0.0, 1.0) * 0.6
 	if _eng.stream:
 		if want and not _eng.playing:
 			_eng.play()
@@ -219,6 +243,9 @@ func _input_rpc(thr: float, strv: float, lift: float, pitch: float, roll: float,
 # ---------- المحاكاة (المضيف فقط) ----------
 
 func _simulate(delta: float) -> void:
+	if _crashing:
+		_sim_crash(delta)
+		return
 	if _dead:
 		return
 	if driver == 0:
@@ -430,9 +457,168 @@ func take_damage(amount: float, attacker: int, explosive := false) -> void:
 		return
 	health -= amount * (1.0 if explosive else float(st.armor))
 	if health <= 0.0:
-		_dead = true
-		get_tree().current_scene.vehicle_destroyed(self, attacker)
-		queue_free()
+		_destroy(attacker)
+
+
+# ---------- التدمير والسقوط ----------
+
+func _destroy(attacker: int) -> void:
+	_dead = true
+	var m = get_tree().current_scene
+	m.vehicle_destroyed(self, attacker)
+	m.release_slot(self)
+	remove_from_group("vehicle")
+	remove_from_group("damageable")
+	var air: bool = (st.mode == "heli" or st.mode == "jet") and global_position.y > 5.0
+	_destroyed_fx.rpc(air)
+	if air:
+		_crashing = true
+		_crash_v = velocity if st.mode == "heli" else -global_transform.basis.z * cur_speed
+	else:
+		get_tree().create_timer(25.0).timeout.connect(queue_free)
+
+
+func _sim_crash(delta: float) -> void:
+	_crash_v.y -= 24.0 * delta
+	rotate_object_local(Vector3.FORWARD, 2.4 * delta)
+	rotate_object_local(Vector3.RIGHT, -0.5 * delta)
+	if st.mode == "heli":
+		rotate_y(3.5 * delta)
+	basis = basis.orthonormalized()
+	var c := move_and_collide(_crash_v * delta)
+	if c:
+		_crashing = false
+		get_tree().current_scene.explode(global_position, 14.0, 220.0, 0, -1)
+		_landed_fx.rpc()
+		get_tree().create_timer(25.0).timeout.connect(queue_free)
+
+
+@rpc("authority", "call_local", "reliable")
+func _landed_fx() -> void:
+	Fx.dust(get_tree(), global_position, 9.0)
+	var scorch := P.cyl(self, 5.0, 0.03, Vector3(0, 0.06, 0), M.solid(Color(0.02, 0.02, 0.02), 1.0))
+	scorch.top_level = true
+	scorch.global_position = global_position + Vector3(0, 0.06, 0)
+	scorch.global_rotation = Vector3.ZERO
+
+
+@rpc("authority", "call_local", "reliable")
+func _destroyed_fx(air: bool) -> void:
+	_wreck = true
+	driver = 0
+	if _eng:
+		_eng.stop()
+	if _trk:
+		_trk.stop()
+	_char(self, M.solid(Color(0.05, 0.045, 0.04), 0.95))
+	_add_fire()
+	if air:
+		return
+	if kind == "tank" or kind == "apc":
+		var blown := Node3D.new()
+		add_child(blown)
+		blown.position = turret.position
+		blown.rotation.y = turret.rotation.y
+		for c in turret.get_children():
+			turret.remove_child(c)
+			blown.add_child(c)
+		var p0 := blown.position
+		var tw := blown.create_tween()
+		tw.tween_property(blown, "position", p0 + Vector3(randf_range(-2.0, 2.0), 7.0, randf_range(-2.0, 2.0)), 0.5).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+		tw.parallel().tween_property(blown, "rotation:z", randf_range(-1.2, 1.2), 0.9)
+		tw.tween_property(blown, "position", p0 + Vector3(randf_range(-3.0, 3.0), 0.2, randf_range(-3.0, 3.0)), 0.55).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
+	var sc := P.cyl(self, 4.0, 0.03, Vector3(0, 0.06, 0), M.solid(Color(0.02, 0.02, 0.02), 1.0))
+	sc.top_level = true
+	sc.global_position = global_position + Vector3(0, 0.06, 0)
+	sc.global_rotation = Vector3.ZERO
+
+
+func _char(n: Node, mat: Material) -> void:
+	for c in n.get_children():
+		if c is MeshInstance3D:
+			(c as MeshInstance3D).material_override = mat
+		_char(c, mat)
+
+
+func _add_fire() -> void:
+	var sm := SphereMesh.new()
+	sm.radius = 0.5
+	sm.height = 1.0
+	sm.radial_segments = 8
+	sm.rings = 4
+	var smat := StandardMaterial3D.new()
+	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	smat.vertex_color_use_as_albedo = true
+	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	sm.material = smat
+	var top := Vector3(0, float(st.size.y) * 0.6, 0)
+	var smoke := CPUParticles3D.new()
+	smoke.amount = 36
+	smoke.lifetime = 4.5
+	smoke.local_coords = false
+	smoke.mesh = sm
+	smoke.direction = Vector3.UP
+	smoke.spread = 18.0
+	smoke.initial_velocity_min = 2.0
+	smoke.initial_velocity_max = 4.0
+	smoke.gravity = Vector3(0, 1.2, 0)
+	smoke.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	smoke.emission_sphere_radius = 0.8
+	var curve := Curve.new()
+	curve.add_point(Vector2(0.0, 0.6))
+	curve.add_point(Vector2(1.0, 3.2))
+	smoke.scale_amount_curve = curve
+	var ramp := Gradient.new()
+	ramp.colors = PackedColorArray([Color(0.1, 0.1, 0.1, 0.9), Color(0.14, 0.14, 0.14, 0.6), Color(0.2, 0.2, 0.2, 0.0)])
+	ramp.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	smoke.color_ramp = ramp
+	add_child(smoke)
+	smoke.position = top
+	var fm := SphereMesh.new()
+	fm.radius = 0.3
+	fm.height = 0.6
+	fm.radial_segments = 8
+	fm.rings = 4
+	var fmat := StandardMaterial3D.new()
+	fmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fmat.vertex_color_use_as_albedo = true
+	fmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fm.material = fmat
+	var flame := CPUParticles3D.new()
+	flame.amount = 24
+	flame.lifetime = 0.7
+	flame.local_coords = false
+	flame.mesh = fm
+	flame.direction = Vector3.UP
+	flame.spread = 25.0
+	flame.initial_velocity_min = 1.0
+	flame.initial_velocity_max = 3.0
+	flame.gravity = Vector3(0, 2.0, 0)
+	flame.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	flame.emission_sphere_radius = 0.7
+	var fr := Gradient.new()
+	fr.colors = PackedColorArray([Color(1.0, 0.9, 0.4, 0.95), Color(1.0, 0.45, 0.1, 0.8), Color(0.3, 0.1, 0.05, 0.0)])
+	fr.offsets = PackedFloat32Array([0.0, 0.4, 1.0])
+	flame.color_ramp = fr
+	add_child(flame)
+	flame.position = top - Vector3(0, 0.3, 0)
+	var l := OmniLight3D.new()
+	l.light_color = Color(1.0, 0.55, 0.2)
+	l.light_energy = 3.0
+	l.omni_range = 14.0
+	add_child(l)
+	l.position = top
+	var lt := l.create_tween().set_loops()
+	lt.tween_property(l, "light_energy", 1.8, 0.11)
+	lt.tween_property(l, "light_energy", 4.0, 0.14)
+	var fp := AudioStreamPlayer3D.new()
+	fp.stream = Sfx.stream("fire")
+	fp.unit_size = 10.0
+	fp.max_distance = 90.0
+	fp.volume_db = -2.0
+	add_child(fp)
+	if fp.stream:
+		fp.play()
 
 
 func hud_data() -> Dictionary:
