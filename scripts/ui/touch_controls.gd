@@ -3,7 +3,7 @@ extends Control
 ## الطائرة: العصا = رفع/خفض الأنف وميلان. RUN = زيادة الدفع. DOWN = تقليل الدفع.
 ## المروحية: JUMP = صعود، DOWN = نزول. ALT = صواريخ.
 
-const STICK_R := 90.0
+var STICK_R := 90.0
 
 var _stick_id := -1
 var _stick_origin := Vector2.ZERO
@@ -23,17 +23,19 @@ func _is_mlrs() -> bool:
 
 func _buttons() -> Array:
 	var s := size
+	var k := float(Cfg.opts.touch)
+	STICK_R = 90.0 * k
 	var arr := [
-		{"a": "fire", "p": Vector2(s.x - 130, s.y - 130), "r": 62.0, "t": "FIRE"},
-		{"a": "alt", "p": Vector2(s.x - 285, s.y - 100), "r": 40.0, "t": "ALT"},
-		{"a": "jump", "p": Vector2(s.x - 320, s.y - 215), "r": 40.0, "t": "JUMP"},
-		{"a": "sprint", "p": Vector2(s.x - 300, s.y - 320), "r": 38.0, "t": "RUN"},
-		{"a": "crouch", "p": Vector2(s.x - 205, s.y - 330), "r": 38.0, "t": "DOWN"},
-		{"a": "interact", "p": Vector2(s.x - 70, s.y - 285), "r": 38.0, "t": "E"},
-		{"a": "reload", "p": Vector2(s.x - 430, s.y - 90), "r": 36.0, "t": "R"},
+		{"a": "fire", "p": Vector2(s.x - 130, s.y - 130), "r": 62.0 * k, "t": "FIRE"},
+		{"a": "alt", "p": Vector2(s.x - 285, s.y - 100), "r": 40.0 * k, "t": "ALT"},
+		{"a": "jump", "p": Vector2(s.x - 320, s.y - 215), "r": 40.0 * k, "t": "JUMP"},
+		{"a": "sprint", "p": Vector2(s.x - 300, s.y - 320), "r": 38.0 * k, "t": "RUN"},
+		{"a": "crouch", "p": Vector2(s.x - 205, s.y - 330), "r": 38.0 * k, "t": "DOWN"},
+		{"a": "interact", "p": Vector2(s.x - 70, s.y - 285), "r": 38.0 * k, "t": "E"},
+		{"a": "reload", "p": Vector2(s.x - 430, s.y - 90), "r": 36.0 * k, "t": "R"},
 	]
 	if _is_mlrs():
-		arr.append({"a": "map_panel", "p": Vector2(s.x - 430, s.y - 190), "r": 40.0, "t": "MLRS"})
+		arr.append({"a": "map_panel", "p": Vector2(s.x - 430, s.y - 190), "r": 40.0 * k, "t": "MLRS"})
 	return arr
 
 

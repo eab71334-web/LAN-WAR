@@ -150,6 +150,9 @@ func _draw() -> void:
 	var s = sc.local_soldier
 	var alive := is_instance_valid(s)
 
+	if bool(Cfg.opts.fps):
+		draw_string(f, Vector2(sz.x - 110, 24), "%d FPS" % Engine.get_frames_per_second(), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.4, 1.0, 0.4))
+
 	# وميض الإصابة
 	if _flash_a > 0.0:
 		draw_rect(Rect2(Vector2.ZERO, sz), Color(0.8, 0.0, 0.0, _flash_a * 0.35))
