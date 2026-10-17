@@ -273,3 +273,30 @@ static func dust(tree: SceneTree, pos: Vector3, size: float) -> void:
 	root.add_child(p)
 	p.global_position = pos
 	_free_later(tree, p, 5.5)
+
+
+static func bomb(tree: SceneTree, o: Vector3, v: Vector3, g: float, t: float) -> void:
+	var root := tree.current_scene
+	if root == null:
+		return
+	var b := Node3D.new()
+	root.add_child(b)
+	b.global_position = o
+	var mat := M.solid(Color(0.25, 0.28, 0.22), 0.5, 0.4)
+	P.cyl(b, 0.25, 1.6, Vector3.ZERO, mat, Vector3(90, 0, 0))
+	P.cyl(b, 0.01, 0.5, Vector3(0, 0, -1.0), mat, Vector3(90, 0, 0), 0.25)
+	for i in 4:
+		P.box(b, Vector3(0.02, 0.5, 0.4), Vector3(0, 0, 0.7), M.solid(Color(0.3, 0.3, 0.28)), Vector3(0, 0, i * 90.0 + 45.0))
+	Sfx.play3d("rocket", o, -2.0, 0.55, 220.0)
+	var step := func(k: float) -> void:
+		if not is_instance_valid(b):
+			return
+		var p: Vector3 = o + v * k + Vector3(0, -0.5 * g * k * k, 0)
+		var vel: Vector3 = v + Vector3(0, -g * k, 0)
+		b.global_position = p
+		if vel.length() > 0.1:
+			var up := Vector3.UP if absf(vel.normalized().y) < 0.98 else Vector3.RIGHT
+			b.look_at(p + vel, up)
+	var tw := b.create_tween()
+	tw.tween_method(step, 0.0, maxf(t, 0.1), maxf(t, 0.1))
+	tw.tween_callback(b.queue_free)

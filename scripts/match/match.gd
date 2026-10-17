@@ -10,6 +10,7 @@ const HudS := preload("res://scripts/ui/hud.gd")
 const TouchS := preload("res://scripts/ui/touch_controls.gd")
 const Buildings := preload("res://scripts/match/buildings.gd")
 const SM := preload("res://scripts/models/soldier_model.gd")
+const Thumbs := preload("res://scripts/ui/thumbs.gd")
 
 var local_soldier = null
 var spawn_points := {}
@@ -28,6 +29,8 @@ var respawn_left := 0.0
 var hud: Control
 var _loadout: PanelContainer
 var _kind_btns := {}
+var _kind_cnt := {}
+var _thumb_holder: Node
 var _loadout_msg: Label
 var _over_panel: PanelContainer
 var _over_label: Label
@@ -128,7 +131,7 @@ func _spawn_entity(d: Dictionary) -> Node:
 
 
 @rpc("any_peer", "call_local", "reliable")
-func request_deploy(cls: String, weapon: String, kind: String) -> void:
+func request_deploy(cls: String, weapon: String, kind: String, look: Dictionary) -> void:
 	if not multiplayer.is_server() or not started or game_over:
 		return
 	var id := _sender()
@@ -149,7 +152,7 @@ func request_deploy(cls: String, weapon: String, kind: String) -> void:
 	if cat != "":
 		serial += 1
 		var vp := _spawn_pos(team, 14.0)
-		if kind == "jet":
+		if kind == "jet" or kind == "bomber":
 			vp.y = 90.0
 		var face := -Vector3(vp.x, 0, vp.z).normalized()
 		var v = spawner.spawn({"type": "vehicle", "name": "V%d" % serial, "kind": kind, "team": team, "pos": vp, "driver": id, "yaw": atan2(-face.x, -face.z)})
@@ -157,10 +160,10 @@ func request_deploy(cls: String, weapon: String, kind: String) -> void:
 		v.tree_exiting.connect(_vehicle_gone.bind(v, cat))
 		_counts.rpc(vcount)
 		serial += 1
-		player_entity[id] = spawner.spawn({"type": "soldier", "name": "S%d" % serial, "peer": id, "team": team, "cls": cls, "weapon": weapon, "pos": vp})
+		player_entity[id] = spawner.spawn({"type": "soldier", "name": "S%d" % serial, "peer": id, "team": team, "cls": cls, "weapon": weapon, "look": Cfg.sanitize_look(look), "pos": vp})
 	else:
 		serial += 1
-		player_entity[id] = spawner.spawn({"type": "soldier", "name": "S%d" % serial, "peer": id, "team": team, "cls": cls, "weapon": weapon, "pos": _spawn_pos(team)})
+		player_entity[id] = spawner.spawn({"type": "soldier", "name": "S%d" % serial, "peer": id, "team": team, "cls": cls, "weapon": weapon, "look": Cfg.sanitize_look(look), "pos": _spawn_pos(team)})
 
 
 func release_slot(v) -> void:
@@ -212,7 +215,7 @@ func soldier_died(pid: int, attacker: int) -> void:
 	_you_died.rpc_id(pid, float(Net.settings.respawn))
 	if is_instance_valid(s):
 		if not is_instance_valid(s.vehicle):
-			_corpse.rpc(s.global_position, s.rotation.y, Net.players[pid].team, str(s.weapon), str(s.cls))
+			_corpse.rpc(s.global_position, s.rotation.y, Net.players[pid].team, str(s.weapon), str(s.cls), s.look)
 		s.queue_free()
 
 
@@ -237,6 +240,11 @@ func explode(pos: Vector3, radius: float, dmg: float, attacker: int, atk_team: i
 @rpc("authority", "call_local", "unreliable")
 func tracer(a: Vector3, b: Vector3, kind: String) -> void:
 	Fx.tracer(get_tree(), a, b, kind)
+
+
+@rpc("authority", "call_local", "reliable")
+func bomb_fx(o: Vector3, v: Vector3, g: float, t: float) -> void:
+	Fx.bomb(get_tree(), o, v, g, t)
 
 
 @rpc("authority", "call_local", "reliable")
@@ -315,33 +323,80 @@ func _build_ui() -> void:
 		UI.full_rect(tc)
 		root.add_child(tc)
 
+	_thumb_holder = Node.new()
+	root.add_child(_thumb_holder)
 	_loadout = PanelContainer.new()
 	root.add_child(_loadout)
-	_loadout.custom_minimum_size = Vector2(540, 0)
-	_loadout.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	_loadout.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_loadout.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_loadout.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	_loadout.offset_left = 10.0
+	_loadout.offset_right = -10.0
+	_loadout.offset_top = -292.0
+	_loadout.offset_bottom = -8.0
 	_loadout.visible = false
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 8)
+	v.add_theme_constant_override("separation", 6)
 	_loadout.add_child(v)
 	var my_team: int = Net.players.get(multiplayer.get_unique_id(), {"team": 0}).team
-	var tl := UI.label("اختر مكان الانتشار — " + Cfg.TEAMS[my_team].name, 26)
+	var head := HBoxContainer.new()
+	v.add_child(head)
+	var tl := UI.label("اختر مكان الانتشار — " + Cfg.TEAMS[my_team].name, 24)
 	tl.modulate = Cfg.TEAMS[my_team].color.lightened(0.45)
-	v.add_child(tl)
-	var info := UI.label("%s  •  %s   (يتغيّر من القائمة الرئيسية)" % [Cfg.CLASSES[Cfg.profile.cls].name, Cfg.WEAPONS[Cfg.profile.weapon].name], 15)
+	tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(tl)
+	var info := UI.label("%s  •  %s" % [Cfg.CLASSES[Cfg.profile.cls].name, Cfg.WEAPONS[Cfg.profile.weapon].name], 16)
 	info.modulate = UI.AMBER
-	v.add_child(info)
-	v.add_child(HSeparator.new())
-	for k in Cfg.KINDS:
-		_kind_keys.append(k)
-		var b := UI.button(Cfg.KINDS[k].name, _on_deploy.bind(k))
-		b.custom_minimum_size = Vector2(0, 58 if Cfg.is_mobile else 48)
-		_kind_btns[k] = b
-		v.add_child(b)
-	_loadout_msg = UI.label("", 16)
+	head.add_child(info)
+	_loadout_msg = UI.label("", 15)
 	_loadout_msg.modulate = Color(1, 0.6, 0.4)
 	v.add_child(_loadout_msg)
+	var sc := ScrollContainer.new()
+	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(sc)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	sc.add_child(row)
+	var team_col: Color = Cfg.TEAMS[my_team].color
+	for k in Cfg.KINDS:
+		_kind_keys.append(k)
+		var card := Button.new()
+		card.custom_minimum_size = Vector2(176, 212)
+		card.add_theme_stylebox_override("normal", UI.sb(Color(0.1, 0.13, 0.08, 0.95), UI.OLIVE, 2, 6, 6))
+		card.add_theme_stylebox_override("hover", UI.sb(Color(0.2, 0.25, 0.1, 0.98), UI.AMBER, 3, 6, 6))
+		card.add_theme_stylebox_override("pressed", UI.sb(Color(0.35, 0.28, 0.1), UI.AMBER, 3, 6, 6))
+		card.add_theme_stylebox_override("disabled", UI.sb(Color(0.07, 0.07, 0.07, 0.9), Color(0.25, 0.25, 0.25), 2, 6, 6))
+		card.pressed.connect(_on_deploy.bind(k))
+		card.pressed.connect(func(): Sfx.ui("click"))
+		UI.hover_anim(card, 1.04)
+		var cv := VBoxContainer.new()
+		cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		UI.full_rect(cv)
+		cv.add_theme_constant_override("separation", 2)
+		card.add_child(cv)
+		var tex: Texture2D
+		if k == "soldier":
+			tex = Thumbs.soldier(_thumb_holder, team_col, str(Cfg.profile.weapon), str(Cfg.profile.cls), Cfg.current_look())
+		else:
+			tex = Thumbs.vehicle(_thumb_holder, k, team_col)
+		var tr := TextureRect.new()
+		tr.texture = tex
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tr.custom_minimum_size = Vector2(0, 130)
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cv.add_child(tr)
+		var nl := UI.label(Cfg.KINDS[k].name, 17)
+		nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		nl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cv.add_child(nl)
+		var cl := UI.label("", 15)
+		cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		cl.modulate = UI.AMBER
+		cl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cv.add_child(cl)
+		_kind_btns[k] = card
+		_kind_cnt[k] = cl
+		row.add_child(card)
 
 	_over_panel = PanelContainer.new()
 	root.add_child(_over_panel)
@@ -368,12 +423,15 @@ func _show_loadout(msg: String) -> void:
 func _refresh_kinds() -> void:
 	for k in _kind_keys:
 		var cat: String = Cfg.KINDS[k].cat
+		var b: Button = _kind_btns[k]
+		var cl: Label = _kind_cnt[k]
 		if cat == "":
+			cl.text = "غير محدود"
+			b.disabled = respawn_left > 0.0
 			continue
 		var lim := int(Net.settings.limits.get(cat, 0))
 		var used := int(vcount.get(cat, 0))
-		var b: Button = _kind_btns[k]
-		b.text = "%s   (%d / %d)" % [Cfg.KINDS[k].name, used, lim]
+		cl.text = "%d / %d" % [used, lim]
 		b.disabled = used >= lim or respawn_left > 0.0
 
 
@@ -385,7 +443,7 @@ func _set_deploy(on: bool) -> void:
 
 
 func _on_deploy(kind: String) -> void:
-	request_deploy.rpc_id(1, Cfg.profile.cls, Cfg.profile.weapon, kind)
+	request_deploy.rpc_id(1, Cfg.profile.cls, Cfg.profile.weapon, kind, Cfg.current_look())
 
 
 func _process(delta: float) -> void:
@@ -411,13 +469,13 @@ func _unhandled_input(e: InputEvent) -> void:
 
 
 @rpc("authority", "call_local", "reliable")
-func _corpse(pos: Vector3, yaw: float, team: int, weapon: String, cls: String) -> void:
+func _corpse(pos: Vector3, yaw: float, team: int, weapon: String, cls: String, look: Dictionary) -> void:
 	Sfx.play3d("death", pos, 2.0, 1.0, 80.0)
 	var holder := Node3D.new()
 	add_child(holder)
 	holder.global_position = pos
 	holder.rotation.y = yaw
-	var m := SM.build(holder, Cfg.TEAMS[team].color, weapon, cls)
+	var m := SM.build(holder, Cfg.TEAMS[team].color, weapon, cls, look)
 	var tw := holder.create_tween()
 	tw.tween_property(holder, "rotation:x", -PI * 0.5, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.parallel().tween_property(holder, "position:y", pos.y + 0.15, 0.55)
