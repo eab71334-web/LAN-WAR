@@ -4,7 +4,7 @@ extends Control
 
 const UI := preload("res://scripts/ui/ui.gd")
 const Backdrop := preload("res://scripts/ui/backdrop3d.gd")
-const SM := preload("res://scripts/models/soldier_model.gd")
+const LoadoutScreen := preload("res://scripts/ui/loadout_screen.gd")
 
 var _name_edit: LineEdit
 var _status: Label
@@ -14,16 +14,11 @@ var _col: Control
 var _title: Label
 var _host_panel: PanelContainer
 var _join_panel: PanelContainer
-var _load_panel: PanelContainer
 var _set_panel: PanelContainer
 var _room_edit: LineEdit
 var _ip_edit: LineEdit
 var _list: ItemList
 var _join_status: Label
-var _prev_spin: Node3D
-var _cls_group := ButtonGroup.new()
-var _wpn_group := ButtonGroup.new()
-var _bars := {}
 
 
 func _ready() -> void:
@@ -43,7 +38,6 @@ func _ready() -> void:
 	add_child(_dim)
 	_host_panel = _build_host()
 	_join_panel = _build_join()
-	_load_panel = _build_loadout()
 	_set_panel = _build_settings()
 
 	var foot := UI.label("LAN WAR  •  v0.3  •  Godot 4", 14)
@@ -115,7 +109,7 @@ func _build_column() -> void:
 	var items := [
 		["إنشاء غرفة LAN", func(): _open(_host_panel)],
 		["الانضمام إلى غرفة", func(): _open(_join_panel)],
-		["تجهيز الجندي والسلاح", func(): _open(_load_panel)],
+		["تجهيز الجندي والسلاح", func(): _open_loadout()],
 		["الإعدادات", func(): _open(_set_panel)],
 		["خروج", func(): get_tree().quit()],
 	]
@@ -174,9 +168,6 @@ func _open(p: PanelContainer) -> void:
 	var tw := p.create_tween().set_parallel(true)
 	tw.tween_property(p, "modulate:a", 1.0, 0.25)
 	tw.tween_property(p, "scale", Vector2.ONE, 0.38).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	if p == _load_panel:
-		_rebuild_preview()
-		_refresh_stats(true)
 
 
 func _close() -> void:
@@ -229,144 +220,11 @@ func _build_join() -> PanelContainer:
 	return p
 
 
-# ---------------- تجهيز الجندي والسلاح ----------------
+# ---------------- تجهيز الجندي والسلاح (شاشة كاملة) ----------------
 
-func _build_loadout() -> PanelContainer:
-	var p := _make_modal("تجهيز الجندي والسلاح", 940)
-	var body: VBoxContainer = p.get_meta("body")
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 20)
-	body.add_child(h)
-
-	var svc := SubViewportContainer.new()
-	svc.stretch = true
-	svc.custom_minimum_size = Vector2(300, 430)
-	h.add_child(svc)
-	var sv := SubViewport.new()
-	sv.own_world_3d = true
-	sv.transparent_bg = true
-	sv.size = Vector2i(300, 430)
-	svc.add_child(sv)
-	var root := Node3D.new()
-	sv.add_child(root)
-	var we := WorldEnvironment.new()
-	var env := Environment.new()
-	env.background_mode = Environment.BG_CLEAR_COLOR
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.75, 0.78, 0.85)
-	env.ambient_light_energy = 0.7
-	we.environment = env
-	root.add_child(we)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-30, -35, 0)
-	sun.light_energy = 1.3
-	root.add_child(sun)
-	var rim := DirectionalLight3D.new()
-	rim.rotation_degrees = Vector3(-10, 150, 0)
-	rim.light_color = Color(1.0, 0.7, 0.4)
-	rim.light_energy = 1.0
-	root.add_child(rim)
-	_prev_spin = Node3D.new()
-	_prev_spin.rotation.y = PI
-	root.add_child(_prev_spin)
-	var cam := Camera3D.new()
-	root.add_child(cam)
-	cam.position = Vector3(0, 1.15, 3.6)
-	cam.look_at(Vector3(0, 0.95, 0))
-	cam.current = true
-
-	var right := VBoxContainer.new()
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right.add_theme_constant_override("separation", 8)
-	h.add_child(right)
-
-	right.add_child(UI.label("الفئة", 18))
-	var crow := HBoxContainer.new()
-	right.add_child(crow)
-	for k in Cfg.CLASSES:
-		var b := Button.new()
-		b.text = Cfg.CLASSES[k].name
-		b.toggle_mode = true
-		b.button_group = _cls_group
-		b.button_pressed = (k == Cfg.profile.cls)
-		b.custom_minimum_size = Vector2(0, 46)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.pressed.connect(_pick_class.bind(k))
-		UI.hover_anim(b, 1.03)
-		crow.add_child(b)
-
-	right.add_child(UI.label("السلاح", 18))
-	var wrow := GridContainer.new()
-	wrow.columns = 2
-	right.add_child(wrow)
-	for k in Cfg.WEAPONS:
-		var b2 := Button.new()
-		b2.text = Cfg.WEAPONS[k].name
-		b2.toggle_mode = true
-		b2.button_group = _wpn_group
-		b2.button_pressed = (k == Cfg.profile.weapon)
-		b2.custom_minimum_size = Vector2(0, 46)
-		b2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b2.pressed.connect(_pick_weapon.bind(k))
-		UI.hover_anim(b2, 1.03)
-		wrow.add_child(b2)
-
-	right.add_child(HSeparator.new())
-	for st in [["dmg", "قوة الضرر"], ["rof", "سرعة الإطلاق"], ["mag", "سعة المخزن"], ["hp", "الصحة"], ["spd", "الحركة"]]:
-		var row := HBoxContainer.new()
-		var l := UI.label(st[1], 16)
-		l.custom_minimum_size = Vector2(130, 0)
-		row.add_child(l)
-		var pb := ProgressBar.new()
-		pb.max_value = 100.0
-		pb.show_percentage = false
-		pb.custom_minimum_size = Vector2(0, 16)
-		pb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		pb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(pb)
-		right.add_child(row)
-		_bars[st[0]] = pb
-	var note := UI.label("يُحفظ تلقائيًا ويُستخدم عند الانتشار في المباراة.", 14)
-	note.modulate = Color(1, 1, 1, 0.6)
-	right.add_child(note)
-	return p
-
-
-func _pick_class(k: String) -> void:
-	Cfg.profile.cls = k
-	Cfg.save()
-	_rebuild_preview()
-	_refresh_stats(false)
-
-
-func _pick_weapon(k: String) -> void:
-	Cfg.profile.weapon = k
-	Cfg.save()
-	_rebuild_preview()
-	_refresh_stats(false)
-
-
-func _rebuild_preview() -> void:
-	for c in _prev_spin.get_children():
-		c.queue_free()
-	SM.build(_prev_spin, Cfg.TEAMS[0].color, str(Cfg.profile.weapon), str(Cfg.profile.cls))
-
-
-func _refresh_stats(from_zero: bool) -> void:
-	var w: Dictionary = Cfg.WEAPONS[Cfg.profile.weapon]
-	var c: Dictionary = Cfg.CLASSES[Cfg.profile.cls]
-	var vals := {
-		"dmg": clampf(float(w.dmg) / 95.0 * 100.0, 5.0, 100.0),
-		"rof": clampf((1.0 / float(w.rate)) / 13.3 * 100.0, 5.0, 100.0),
-		"mag": clampf(float(w.mag) / 100.0 * 100.0, 5.0, 100.0),
-		"hp": clampf(float(c.hp) / 120.0 * 100.0, 5.0, 100.0),
-		"spd": clampf(float(c.speed) / 6.5 * 100.0, 5.0, 100.0),
-	}
-	for k in vals:
-		var pb: ProgressBar = _bars[k]
-		if from_zero:
-			pb.value = 0.0
-		pb.create_tween().tween_property(pb, "value", vals[k], 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+func _open_loadout() -> void:
+	var ls := LoadoutScreen.new()
+	add_child(ls)
 
 
 # ---------------- الإعدادات ----------------
@@ -424,11 +282,6 @@ func _slider(parent: Control, text: String, mn: float, mx: float, step: float, v
 
 
 # ---------------- الاتصال ----------------
-
-func _process(delta: float) -> void:
-	if _prev_spin and _load_panel and _load_panel.visible:
-		_prev_spin.rotation.y += delta * 0.7
-
 
 func _on_error(m: String) -> void:
 	_status.text = m
