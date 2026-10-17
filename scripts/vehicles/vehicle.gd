@@ -139,7 +139,7 @@ func set_driver(p: int) -> void:
 
 
 func _unhandled_input(e: InputEvent) -> void:
-	if not _is_me() or kind == "jet":
+	if not _is_me() or st.mode == "jet":
 		return
 	if e is InputEventMouseMotion and e.device != InputEvent.DEVICE_ID_EMULATION and Cfg.input_live():
 		_cam_yaw -= e.relative.x * 0.0025 * float(Cfg.opts.sens)
@@ -158,6 +158,8 @@ func _process(delta: float) -> void:
 	if _m.burner:
 		var ratio := clampf((cur_speed - float(st.min)) / (float(st.speed) - float(st.min)), 0.0, 1.0)
 		(_m.burner as Node3D).scale.y = 0.25 + ratio
+		if _m.burner2:
+			(_m.burner2 as Node3D).scale.y = 0.25 + ratio
 	if st.mode == "heli" and _m.body:
 		var b: Node3D = _m.body
 		var yr := wrapf(rotation.y - _last_yaw, -PI, PI) / maxf(delta, 0.001)
@@ -185,7 +187,7 @@ func _process(delta: float) -> void:
 	_cam.current = me
 	if not me:
 		return
-	if kind == "jet":
+	if st.mode == "jet":
 		_rig.global_transform = Transform3D(global_transform.basis, global_position + global_transform.basis.y * 1.5)
 		_arm.rotation.x = -0.1
 	else:
@@ -210,7 +212,7 @@ func _send_input() -> void:
 	var roll := 0.0
 	if live and kind == "heli":
 		lift = Input.get_axis("crouch", "jump")
-	if live and kind == "jet":
+	if live and st.mode == "jet":
 		lift = Input.get_axis("crouch", "sprint")
 		pitch = Input.get_axis("move_fwd", "move_back")
 		roll = strv
@@ -330,7 +332,7 @@ func _muzzle() -> Vector3:
 func _aim() -> Array:
 	var o := _muzzle()
 	var d: Vector3
-	if kind == "jet":
+	if st.mode == "jet":
 		d = -global_transform.basis.z
 	else:
 		var co := in_orig
@@ -411,6 +413,36 @@ func _secondary() -> void:
 			m.tracer.rpc(o + Vector3.UP * 0.6, end, "mg")
 		"rocket":
 			_launch_rocket(o + Vector3.DOWN * 0.4, end, 220.0, 0.0, float(st.alt_radius), float(st.alt_dmg))
+		"bomb":
+			_drop_bomb(float(st.alt_radius), float(st.alt_dmg))
+
+
+func _drop_bomb(radius: float, dmg: float) -> void:
+	var m = get_tree().current_scene
+	var o := global_position + Vector3.DOWN * 1.6
+	var v := -global_transform.basis.z * cur_speed
+	var g := 16.0
+	var pos := o
+	var vel := v
+	var t := 0.0
+	var hitp := o
+	var found := false
+	while t < 12.0:
+		vel.y -= g * 0.05
+		var np := pos + vel * 0.05
+		var q := PhysicsRayQueryParameters3D.create(pos, np)
+		q.exclude = [get_rid()]
+		var h := get_world_3d().direct_space_state.intersect_ray(q)
+		t += 0.05
+		if not h.is_empty():
+			hitp = h.position
+			found = true
+			break
+		pos = np
+	if not found:
+		hitp = pos
+	m.bomb_fx.rpc(o, v, g, t)
+	m.get_tree().create_timer(t).timeout.connect(m.explode.bind(hitp, radius, dmg * float(Net.settings.damage), driver, team))
 
 
 func _launch_rocket(o: Vector3, tgt: Vector3, speed: float, arc: float, radius: float, dmg: float) -> void:
