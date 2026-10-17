@@ -18,7 +18,7 @@ const TEAMS := [
 const LIMIT_DEFAULTS := {"mlrs": 8, "heli": 8, "tank": 12, "light": 8, "jet": 16}
 const LIMIT_NAMES := {
 	"mlrs": "راجمات M270 MLRS", "heli": "مروحيات", "tank": "دبابات",
-	"light": "جيبات وناقلات جنود", "jet": "طائرات مقاتلة",
+	"light": "جيبات وناقلات جنود", "jet": "طائرات نفاثة (مقاتلة وقاذفة)",
 }
 
 const MAPS := {
@@ -49,6 +49,7 @@ const KINDS := {
 	"mlrs": {"name": "راجمة M270 MLRS", "cat": "mlrs"},
 	"heli": {"name": "مروحية", "cat": "heli"},
 	"jet": {"name": "طائرة مقاتلة", "cat": "jet"},
+	"bomber": {"name": "قاذفة نفاثة", "cat": "jet"},
 }
 
 const VSTATS := {
@@ -59,6 +60,8 @@ const VSTATS := {
 	"mlrs": {"mode": "track", "speed": 9.0, "accel": 4.0, "turn": 0.7, "hp": 900.0, "armor": 0.1, "size": Vector3(3.2, 2.6, 7.0), "weapon": "rocket", "snd": "rocket", "dmg": 230.0, "rate": 1.4, "ammo": 12, "cam": 15.0, "radius": 10.0},
 	"heli": {"mode": "heli", "speed": 32.0, "accel": 10.0, "turn": 1.5, "hp": 800.0, "armor": 0.15, "size": Vector3(2.6, 3.0, 9.0), "weapon": "gun", "snd": "mg", "dmg": 22.0, "rate": 0.08, "ammo": -1, "cam": 16.0, "climb": 12.0,
 		"alt": "rocket", "alt_dmg": 110.0, "alt_rate": 0.8, "alt_ammo": 14, "alt_radius": 5.0},
+	"bomber": {"mode": "jet", "speed": 78.0, "min": 34.0, "hp": 950.0, "armor": 0.2, "size": Vector3(11.0, 2.6, 13.0), "weapon": "gun", "snd": "mg", "dmg": 26.0, "rate": 0.07, "ammo": -1, "cam": 24.0,
+		"alt": "bomb", "alt_dmg": 260.0, "alt_rate": 0.8, "alt_ammo": 12, "alt_radius": 14.0},
 	"jet": {"mode": "jet", "speed": 95.0, "min": 38.0, "hp": 600.0, "armor": 0.15, "size": Vector3(8.0, 2.0, 12.0), "weapon": "gun", "snd": "mg", "dmg": 30.0, "rate": 0.06, "ammo": -1, "cam": 20.0,
 		"alt": "rocket", "alt_dmg": 140.0, "alt_rate": 0.6, "alt_ammo": 8, "alt_radius": 6.0},
 }
@@ -68,8 +71,25 @@ var is_mobile := false
 var touch_live := false   # true أثناء اللعب الفعلي (ليس أثناء شاشة التجهيز)
 
 
+const CAMOS := {"digital": "رقمي", "woodland": "غابات", "desert": "صحراوي"}
+const SKINS := [Color(0.88, 0.68, 0.55), Color(0.76, 0.57, 0.44), Color(0.6, 0.43, 0.31), Color(0.42, 0.29, 0.2), Color(0.28, 0.19, 0.13)]
+const HELMETS := [Color(0.28, 0.32, 0.23), Color(0.5, 0.42, 0.3), Color(0.1, 0.1, 0.11), Color(0.4, 0.42, 0.44)]
+const VESTS := [Color(0.26, 0.24, 0.18), Color(0.1, 0.1, 0.1), Color(0.5, 0.44, 0.32)]
+const FINISHES := {
+	"black": {"name": "أسود", "dark": Color(0.07, 0.07, 0.08), "furn": Color(0.15, 0.14, 0.13)},
+	"tan": {"name": "رملي", "dark": Color(0.38, 0.32, 0.22), "furn": Color(0.46, 0.39, 0.28)},
+	"olive": {"name": "زيتي", "dark": Color(0.2, 0.25, 0.15), "furn": Color(0.28, 0.32, 0.2)},
+	"arctic": {"name": "قطبي", "dark": Color(0.7, 0.72, 0.75), "furn": Color(0.82, 0.84, 0.86)},
+}
+const CLASS_DESC := {
+	"assault": "متوازن: أعلى صحة، مناسب للقتال القريب.",
+	"sniper": "صحة أقل، لكنه الأفضل مع البندقية القناصة.",
+	"engineer": "حقيبة أدوات ومرونة، يصلح لجميع الأسلحة.",
+	"medic": "الأسرع حركة، خفيف ومناسب للدعم.",
+}
+
 const SAVE_PATH := "user://lanwar.cfg"
-var profile := {"name": "", "cls": "assault", "weapon": "rifle"}
+var profile := {"name": "", "cls": "assault", "weapon": "rifle", "look": {"camo": "digital", "skin": 1, "helmet": 0, "vest": 0, "finish": "black"}}
 var opts := {"volume": 0.9, "sens": 1.0, "shadows": true, "scale": 1.0, "touch": 1.0, "fps": false}
 
 
@@ -84,6 +104,24 @@ func load_save() -> void:
 		profile.cls = "assault"
 	if not WEAPONS.has(profile.weapon):
 		profile.weapon = "rifle"
+	profile.look = sanitize_look(profile.look)
+
+
+func sanitize_look(l) -> Dictionary:
+	var d: Dictionary = l if l is Dictionary else {}
+	var camo := str(d.get("camo", "digital"))
+	var fin := str(d.get("finish", "black"))
+	return {
+		"camo": camo if CAMOS.has(camo) else "digital",
+		"skin": clampi(int(d.get("skin", 1)), 0, SKINS.size() - 1),
+		"helmet": clampi(int(d.get("helmet", 0)), 0, HELMETS.size() - 1),
+		"vest": clampi(int(d.get("vest", 0)), 0, VESTS.size() - 1),
+		"finish": fin if FINISHES.has(fin) else "black",
+	}
+
+
+func current_look() -> Dictionary:
+	return sanitize_look(profile.look)
 
 
 func save() -> void:
