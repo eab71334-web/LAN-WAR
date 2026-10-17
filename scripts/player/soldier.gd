@@ -26,6 +26,8 @@ var _srv_next := 0.0
 var _s_ammo := 30
 var _s_reload_until := 0.0
 var _walk_t := 0.0
+var _kick_amt := 0.0
+var _last_sign := 1.0
 var _speed_vis := 0.0
 var _last_pos := Vector3.ZERO
 var _arm: SpringArm3D
@@ -58,7 +60,7 @@ func _ready() -> void:
 	_col.shape = cap
 	_col.position.y = 0.9
 	add_child(_col)
-	_model = SM.build(self, Cfg.TEAMS[team].color, weapon)
+	_model = SM.build(self, Cfg.TEAMS[team].color, weapon, cls)
 	_last_pos = global_position
 
 	var sy := MultiplayerSynchronizer.new()
@@ -111,8 +113,8 @@ func _unhandled_input(e: InputEvent) -> void:
 	if not is_multiplayer_authority() or not alive:
 		return
 	if e is InputEventMouseMotion and e.device != InputEvent.DEVICE_ID_EMULATION and Cfg.input_live() and vehicle == null:
-		rotate_y(-e.relative.x * 0.0025)
-		_pitch = clampf(_pitch - e.relative.y * 0.0025, -1.2, 1.0)
+		rotate_y(-e.relative.x * 0.0025 * float(Cfg.opts.sens))
+		_pitch = clampf(_pitch - e.relative.y * 0.0025 * float(Cfg.opts.sens), -1.2, 1.0)
 		_arm.rotation.x = _pitch
 		aim_pitch = _pitch
 	if e.is_action_pressed("interact"):
@@ -150,11 +152,20 @@ func _process(delta: float) -> void:
 	var amt := clampf(_speed_vis / 6.0, 0.0, 1.0)
 	var ll: Node3D = _model.leg_l
 	var lr: Node3D = _model.leg_r
+	var kl: Node3D = _model.knee_l
+	var kr: Node3D = _model.knee_r
 	var tr: Node3D = _model.torso
-	ll.rotation.x = sin(_walk_t) * 0.75 * amt
-	lr.rotation.x = -sin(_walk_t) * 0.75 * amt
-	tr.position.y = 0.95 + absf(sin(_walk_t)) * 0.035 * amt
-	tr.rotation.x = aim_pitch * 0.5
+	var sw := sin(_walk_t)
+	ll.rotation.x = sw * 0.75 * amt
+	lr.rotation.x = -sw * 0.75 * amt
+	kl.rotation.x = -maxf(0.0, -cos(_walk_t)) * 0.9 * amt
+	kr.rotation.x = -maxf(0.0, cos(_walk_t)) * 0.9 * amt
+	tr.position.y = 1.0 + absf(sw) * 0.03 * amt
+	_kick_amt = move_toward(_kick_amt, 0.0, delta * 0.6)
+	tr.rotation.x = aim_pitch * 0.5 + _kick_amt
+	if amt > 0.3 and signf(sw) != _last_sign:
+		Sfx.play3d("step", global_position, -9.0, randf_range(0.9, 1.1), 45.0)
+	_last_sign = signf(sw) if sw != 0.0 else _last_sign
 
 
 func _physics_process(delta: float) -> void:
@@ -197,10 +208,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _kick() -> void:
-	var w: Node3D = _model.weapon
-	var tw := create_tween()
-	tw.tween_property(w, "position:z", -0.36 + 0.07, 0.03)
-	tw.tween_property(w, "position:z", -0.36, 0.08)
+	_kick_amt = 0.07
 
 
 func _muzzle_pos() -> Vector3:
@@ -273,6 +281,8 @@ func _set_ammo(a: int, r: bool) -> void:
 	var s := multiplayer.get_remote_sender_id()
 	if s != 0 and s != 1:
 		return
+	if r and not reloading:
+		Sfx.play3d("reload", global_position + Vector3.UP, -3.0, 1.0, 40.0)
 	ammo = a
 	reloading = r
 
