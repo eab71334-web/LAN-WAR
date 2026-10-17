@@ -17,6 +17,7 @@ var aim_pitch := 0.0
 var ammo := 30
 var mag := 30
 var reloading := false
+var look := {}
 
 var _model := {}
 var _last_xf := Transform3D.IDENTITY
@@ -41,6 +42,7 @@ func setup(d: Dictionary) -> void:
 	team = d.team
 	cls = d.cls
 	weapon = d.weapon
+	look = Cfg.sanitize_look(d.get("look", {}))
 	position = d.pos
 	max_health = Cfg.CLASSES[cls].hp
 	health = max_health
@@ -60,7 +62,7 @@ func _ready() -> void:
 	_col.shape = cap
 	_col.position.y = 0.9
 	add_child(_col)
-	_model = SM.build(self, Cfg.TEAMS[team].color, weapon, cls)
+	_model = SM.build(self, Cfg.TEAMS[team].color, weapon, cls, look)
 	_last_pos = global_position
 
 	var sy := MultiplayerSynchronizer.new()
