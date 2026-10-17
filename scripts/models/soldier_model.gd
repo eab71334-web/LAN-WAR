@@ -35,14 +35,15 @@ static func _solve_arm(arm: Node3D, fore: Node3D, s: Vector3, t: Vector3, pole: 
 	fore.basis = arm.basis.inverse() * fb
 
 
-static func build(parent: Node3D, team_col: Color, weapon_key: String, cls := "assault") -> Dictionary:
-	var uni := M.camo("digital")
-	var vest := M.solid(Color(0.26, 0.24, 0.18), 0.9)
-	var vest2 := M.solid(Color(0.18, 0.17, 0.13), 0.9)
-	var skin := M.solid(Color(0.76, 0.57, 0.44), 0.7)
+static func build(parent: Node3D, team_col: Color, weapon_key: String, cls := "assault", look := {}) -> Dictionary:
+	var lk := Cfg.sanitize_look(look)
+	var uni := M.camo(lk.camo, 1.6)
+	var vest := M.solid(Cfg.VESTS[lk.vest], 0.9)
+	var vest2 := M.solid((Cfg.VESTS[lk.vest] as Color).darkened(0.3), 0.9)
+	var skin := M.solid(Cfg.SKINS[lk.skin], 0.7)
 	var dark := M.solid(Color(0.08, 0.08, 0.08), 0.6)
 	var boot := M.solid(Color(0.14, 0.1, 0.07), 0.8)
-	var helmet := M.solid(Color(0.28, 0.32, 0.23), 0.6, 0.1)
+	var helmet := M.solid(Cfg.HELMETS[lk.helmet], 0.6, 0.1)
 	var band := M.solid(team_col, 0.6)
 	var mask := M.solid(Color(0.17, 0.16, 0.12), 0.9)
 	var root := P.pivot(parent, Vector3.ZERO, "Model")
@@ -126,7 +127,7 @@ static func build(parent: Node3D, team_col: Color, weapon_key: String, cls := "a
 	# ---- السلاح ----
 	var mount := P.pivot(torso, Vector3(0.16, 0.6, -0.2), "Weapon")
 	d["weapon"] = mount
-	var gun := W.build(mount, weapon_key)
+	var gun := W.build(mount, weapon_key, lk.finish)
 	d["muzzle"] = gun.get_node_or_null("Muzzle")
 	var grip_r: Vector3 = mount.position + (gun.get_meta("grip_r") as Vector3)
 	var grip_l: Vector3 = mount.position + (gun.get_meta("grip_l") as Vector3)

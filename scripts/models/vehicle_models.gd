@@ -7,7 +7,7 @@ const M := preload("res://scripts/models/mats.gd")
 
 
 static func build(v: Node3D, turret: Node3D, kind: String, team_col: Color) -> Dictionary:
-	var d := {"wheels": [], "tip": null, "rotor": null, "tail": null, "burner": null, "gun": null, "body": null}
+	var d := {"wheels": [], "tip": null, "rotor": null, "tail": null, "burner": null, "burner2": null, "gun": null, "body": null}
 	match kind:
 		"mlrs": _mlrs(v, turret, d, team_col)
 		"tank": _tank(v, turret, d, team_col)
@@ -15,6 +15,7 @@ static func build(v: Node3D, turret: Node3D, kind: String, team_col: Color) -> D
 		"jeep": _jeep(v, turret, d, team_col)
 		"heli": _heli(v, d, team_col)
 		"jet": _jet(v, d, team_col)
+		"bomber": _bomber(v, d, team_col)
 	return d
 
 
@@ -280,3 +281,39 @@ static func _jet(v: Node3D, d: Dictionary, team_col: Color) -> void:
 	P.box(v, Vector3(0.14, 0.7, 0.9), Vector3(0, 2.7, 4.9), M.solid(team_col, 0.6), Vector3(18, 0, 0))
 	P.cyl(v, 0.3, 2.4, Vector3(0, 0.45, 0.6), hull2, Vector3(90, 0, 0), 0.3)
 	d["tip"] = P.pivot(v, Vector3(0, 1.0, -6.9), "Tip")
+
+
+# ---------------------------------------------------------------- قاذفة نفاثة هجومية
+static func _bomber(v: Node3D, d: Dictionary, team_col: Color) -> void:
+	var hull := M.solid(Color(0.36, 0.4, 0.36), 0.5, 0.4)
+	var hull2 := M.solid(Color(0.28, 0.31, 0.28), 0.5, 0.4)
+	var dark := M.solid(Color(0.06, 0.06, 0.07), 0.5, 0.4)
+	var bomb := M.solid(Color(0.3, 0.32, 0.27), 0.5, 0.5)
+	P.cyl(v, 0.07, 3.0, Vector3(0, 1.25, -5.5), hull, Vector3(90, 0, 0), 0.62)
+	P.cyl(v, 0.62, 7.0, Vector3(0, 1.25, -0.5), hull, Vector3(90, 0, 0), 0.7)
+	P.cyl(v, 0.7, 3.6, Vector3(0, 1.35, 4.6), hull2, Vector3(90, 0, 0), 0.42)
+	P.sph(v, 0.55, Vector3(0, 1.9, -3.2), M.glass(), Vector3(0.85, 0.7, 2.2))
+	P.box(v, Vector3(0.9, 0.1, 2.6), Vector3(0, 1.66, -3.2), dark)
+	P.cyl(v, 0.1, 2.2, Vector3(0, 0.85, -6.3), dark, Vector3(90, 0, 0))
+	P.cyl(v, 0.16, 0.5, Vector3(0, 0.85, -5.3), hull2, Vector3(90, 0, 0))
+	for sx in [-1.0, 1.0]:
+		P.box(v, Vector3(5.4, 0.16, 3.3), Vector3(sx * 3.4, 1.2, 0.6), hull2, Vector3(0, 0, -sx * 4.0))
+		P.box(v, Vector3(0.14, 0.5, 3.3), Vector3(sx * 6.1, 1.0, 0.6), hull2)
+		P.cyl(v, 0.5, 3.2, Vector3(sx * 1.55, 1.95, 3.4), hull2, Vector3(90, 0, 0), 0.56)
+		P.cyl(v, 0.3, 0.5, Vector3(sx * 1.55, 1.95, 1.7), dark, Vector3(90, 0, 0), 0.5)
+		P.cyl(v, 0.5, 0.6, Vector3(sx * 1.55, 1.95, 5.2), dark, Vector3(90, 0, 0), 0.44)
+		var burner := P.cyl(v, 0.42, 2.4, Vector3(sx * 1.55, 1.95, 6.5), M.emissive(Color(1.0, 0.55, 0.15), 2.5), Vector3(90, 0, 0), 0.02)
+		if sx < 0.0:
+			d["burner"] = burner
+		else:
+			d["burner2"] = burner
+		P.box(v, Vector3(0.12, 2.0, 1.9), Vector3(sx * 2.4, 2.7, 5.5), hull, Vector3(0, 0, -sx * 5.0))
+		P.box(v, Vector3(0.14, 0.7, 0.8), Vector3(sx * 2.4, 3.2, 5.8), M.solid(team_col, 0.6), Vector3(0, 0, -sx * 5.0))
+		for i in 3:
+			var bx := sx * (2.4 + i * 1.0)
+			P.cyl(v, 0.22, 1.7, Vector3(bx, 0.72, 0.8), bomb, Vector3(90, 0, 0))
+			P.cyl(v, 0.01, 0.5, Vector3(bx, 0.72, -0.25), bomb, Vector3(90, 0, 0), 0.22)
+			P.box(v, Vector3(0.5, 0.03, 0.3), Vector3(bx, 0.72, 1.5), dark)
+			P.box(v, Vector3(0.03, 0.5, 0.3), Vector3(bx, 0.72, 1.5), dark)
+	P.box(v, Vector3(5.2, 0.1, 1.3), Vector3(0, 1.6, 6.0), hull2)
+	d["tip"] = P.pivot(v, Vector3(0, 0.85, -7.4), "Tip")

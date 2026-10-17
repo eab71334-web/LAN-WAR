@@ -5,11 +5,12 @@ const P := preload("res://scripts/models/parts.gd")
 const M := preload("res://scripts/models/mats.gd")
 
 
-static func build(parent: Node3D, key: String) -> Node3D:
+static func build(parent: Node3D, key: String, finish := "black") -> Node3D:
 	var w := P.pivot(parent, Vector3.ZERO, "Gun")
-	var dark := M.solid(Color(0.07, 0.07, 0.08), 0.45, 0.5)
+	var fin: Dictionary = Cfg.FINISHES.get(finish, Cfg.FINISHES["black"])
+	var dark := M.solid(fin.dark, 0.45, 0.5)
 	var metal := M.solid(Color(0.22, 0.22, 0.24), 0.35, 0.7)
-	var tan := M.solid(Color(0.42, 0.36, 0.26), 0.8)
+	var tan := M.solid(fin.furn, 0.8)
 	var grip := M.solid(Color(0.12, 0.11, 0.1), 0.9)
 	match key:
 		"sniper":

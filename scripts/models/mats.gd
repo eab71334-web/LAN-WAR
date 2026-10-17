@@ -77,8 +77,9 @@ static func ground(c0: Color, c1: Color, uv_scale := 0.1, freq := 0.03) -> Stand
 	return m
 
 
-static func camo(palette := "woodland") -> StandardMaterial3D:
-	var key := "c" + palette
+static func camo(palette := "woodland", uv := -1.0) -> StandardMaterial3D:
+	var scale := uv if uv > 0.0 else (1.6 if palette == "digital" else 0.2)
+	var key := "c" + palette + str(scale)
 	if _cache.has(key):
 		return _cache[key]
 	var pal: Array = [Color(0.50, 0.54, 0.34), Color(0.74, 0.63, 0.43), Color(0.26, 0.32, 0.20), Color(0.13, 0.13, 0.11)]
@@ -102,7 +103,7 @@ static func camo(palette := "woodland") -> StandardMaterial3D:
 			if a < 0.16:
 				c = pal[3]
 			img.set_pixel(x, y, c)
-	var m := _tex_material(img, 0.2 if palette != "digital" else 1.6, 0.85, 0.08)
+	var m := _tex_material(img, scale, 0.85, 0.08)
 	_cache[key] = m
 	return m
 
