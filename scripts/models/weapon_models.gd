@@ -58,4 +58,12 @@ static func build(parent: Node3D, key: String) -> Node3D:
 			P.box(w, Vector3(0.03, 0.04, 0.1), Vector3(0, 0.075, -0.05), dark)
 			P.box(w, Vector3(0.015, 0.05, 0.015), Vector3(0, 0.06, -0.58), dark)
 			P.pivot(w, Vector3(0, 0.01, -0.82), "Muzzle")
+	var g := {
+		"sniper": [Vector3(0, -0.1, 0.06), Vector3(0, -0.05, -0.38)],
+		"lmg": [Vector3(0, -0.1, 0.12), Vector3(0, -0.04, -0.42)],
+		"support": [Vector3(0, -0.12, -0.08), Vector3(0, -0.05, -0.36)],
+	}
+	var gg: Array = g.get(key, [Vector3(0, -0.1, 0.07), Vector3(0, -0.04, -0.34)])
+	w.set_meta("grip_r", gg[0])
+	w.set_meta("grip_l", gg[1])
 	return w

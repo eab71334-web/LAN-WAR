@@ -129,3 +129,26 @@ static func building(base: Color) -> StandardMaterial3D:
 	var m := _tex_material(img, 1.0 / 3.0, 0.95)
 	_cache[key] = m
 	return m
+
+
+## جدار خرسانة/طوب للمباني القابلة للدخول والتدمير (إحداثيات عالمية = بدون درزات بين القطع)
+static func wall(base: Color) -> StandardMaterial3D:
+	var key := "w" + base.to_html()
+	if _cache.has(key):
+		return _cache[key]
+	var size := 64
+	var n := _noise_img(7, 0.07, size)
+	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
+	for y in size:
+		for x in size:
+			var g: float = n.get_pixel(x, y).r
+			var c := base.darkened(g * 0.25)
+			if y % 16 == 0:
+				c = c.darkened(0.22)
+			elif (y / 16) % 2 == 0 and x % 32 == 0 or (y / 16) % 2 == 1 and (x + 16) % 32 == 0:
+				c = c.darkened(0.18)
+			img.set_pixel(x, y, c)
+	var m := _tex_material(img, 1.0 / 2.0, 0.95)
+	m.uv1_world_triplanar = true
+	_cache[key] = m
+	return m

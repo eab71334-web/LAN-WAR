@@ -47,3 +47,14 @@ static func pivot(parent: Node3D, pos := Vector3.ZERO, nm := "") -> Node3D:
 		n.name = nm
 	parent.add_child(n)
 	return n
+
+
+static func caps(parent: Node3D, r: float, h: float, pos: Vector3, mat: Material, rot_deg := Vector3.ZERO, scl := Vector3.ONE) -> MeshInstance3D:
+	var c := CapsuleMesh.new()
+	c.radius = r
+	c.height = maxf(h, r * 2.0 + 0.001)
+	c.radial_segments = 12
+	c.rings = 4
+	var m := _mi(parent, c, pos, mat, rot_deg)
+	m.scale = scl
+	return m
