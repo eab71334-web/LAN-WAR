@@ -68,9 +68,43 @@ var is_mobile := false
 var touch_live := false   # true أثناء اللعب الفعلي (ليس أثناء شاشة التجهيز)
 
 
+const SAVE_PATH := "user://lanwar.cfg"
+var profile := {"name": "", "cls": "assault", "weapon": "rifle"}
+var opts := {"volume": 0.9, "sens": 1.0, "shadows": true, "scale": 1.0, "touch": 1.0, "fps": false}
+
+
+func load_save() -> void:
+	var cf := ConfigFile.new()
+	if cf.load(SAVE_PATH) == OK:
+		for k in profile:
+			profile[k] = cf.get_value("profile", k, profile[k])
+		for k in opts:
+			opts[k] = cf.get_value("opts", k, opts[k])
+	if not CLASSES.has(profile.cls):
+		profile.cls = "assault"
+	if not WEAPONS.has(profile.weapon):
+		profile.weapon = "rifle"
+
+
+func save() -> void:
+	var cf := ConfigFile.new()
+	for k in profile:
+		cf.set_value("profile", k, profile[k])
+	for k in opts:
+		cf.set_value("opts", k, opts[k])
+	cf.save(SAVE_PATH)
+
+
+func apply_opts() -> void:
+	AudioServer.set_bus_volume_db(0, linear_to_db(clampf(float(opts.volume), 0.001, 1.0)))
+	get_tree().root.scaling_3d_scale = clampf(float(opts.scale), 0.4, 1.0)
+
+
 func _ready() -> void:
+	load_save()
 	is_mobile = OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch")
 	_setup_input()
+	apply_opts()
 
 
 ## هل المدخلات (ماوس ملتقط أو لمس) فعّالة الآن؟
