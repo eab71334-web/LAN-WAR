@@ -4,6 +4,7 @@ extends RefCounted
 const P := preload("res://scripts/models/parts.gd")
 const M := preload("res://scripts/models/mats.gd")
 const VM := preload("res://scripts/models/vehicle_models.gd")
+const B := preload("res://scripts/match/buildings.gd")
 
 const HALF := 300.0
 const CORNERS := [Vector2(-240, -240), Vector2(240, -240), Vector2(240, 240), Vector2(-240, 240)]
@@ -33,6 +34,7 @@ static func setup_env(parent: Node, id: String) -> void:
 
 static func _theme(id: String) -> Dictionary:
 	match id:
+		"menu": return {"g0": Color(0.6, 0.47, 0.3), "g1": Color(0.78, 0.62, 0.4), "uv": 0.06, "top": Color(0.16, 0.26, 0.5), "hor": Color(1.0, 0.68, 0.42), "fog": 0.0045, "sun_rot": Vector3(-13, -55, 0), "sun_col": Color(1.0, 0.7, 0.4), "sun_e": 1.5}
 		"desert_base": return {"g0": Color(0.62, 0.5, 0.33), "g1": Color(0.75, 0.62, 0.42), "uv": 0.06, "top": Color(0.27, 0.45, 0.78), "hor": Color(0.82, 0.74, 0.6), "fog": 0.0014}
 		"forest": return {"g0": Color(0.16, 0.27, 0.1), "g1": Color(0.28, 0.4, 0.15), "uv": 0.09, "top": Color(0.28, 0.46, 0.72), "hor": Color(0.68, 0.76, 0.78), "fog": 0.0035}
 		"military_base": return {"g0": Color(0.33, 0.34, 0.3), "g1": Color(0.45, 0.45, 0.4), "uv": 0.07, "top": Color(0.27, 0.46, 0.78), "hor": Color(0.74, 0.8, 0.85), "fog": 0.0015}
@@ -63,10 +65,10 @@ static func _environment(parent: Node, th: Dictionary) -> void:
 	we.environment = env
 	parent.add_child(we)
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-48, -35, 0)
-	sun.light_color = Color(1.0, 0.95, 0.85)
-	sun.light_energy = 1.05
-	sun.shadow_enabled = true
+	sun.rotation_degrees = th.get("sun_rot", Vector3(-48, -35, 0))
+	sun.light_color = th.get("sun_col", Color(1.0, 0.95, 0.85))
+	sun.light_energy = th.get("sun_e", 1.05)
+	sun.shadow_enabled = bool(Cfg.opts.shadows)
 	sun.directional_shadow_max_distance = 170.0
 	parent.add_child(sun)
 
@@ -182,7 +184,7 @@ static func _city(parent: Node3D, rng: RandomNumberGenerator) -> void:
 	var palette := [Color(0.76, 0.69, 0.56), Color(0.67, 0.61, 0.5), Color(0.82, 0.77, 0.67), Color(0.6, 0.54, 0.46)]
 	var made := 0
 	var tries := 0
-	while made < 100 and tries < 1000:
+	while made < 70 and tries < 1000:
 		tries += 1
 		var x := rng.randf_range(-280, 280)
 		var z := rng.randf_range(-280, 280)
@@ -221,6 +223,7 @@ static func _city(parent: Node3D, rng: RandomNumberGenerator) -> void:
 		_cyl_solid(parent, 0.25, sh, Vector3(x, sh / 2.0, z), M.solid(Color(0.3, 0.2, 0.12), 0.95))
 		P.sph(parent, 2.6, Vector3(x, sh + 1.0, z), M.solid(Color(0.15, 0.3, 0.12), 0.95), Vector3(1.0, 0.8, 1.0))
 	_mosque(parent, Vector3(60, 0, 60))
+	_place_enterables(parent, rng, 14, Vector2(12, 16), Vector2(12, 14), 2, palette, [Vector2(60, 60)])
 
 
 static func _mosque(parent: Node3D, c: Vector3) -> void:
@@ -294,6 +297,7 @@ static func _desert(parent: Node3D, rng: RandomNumberGenerator) -> void:
 		if _near_corner(x, z, 40.0):
 			continue
 		_car(parent, Vector3(x, 0, z), rng.randf() * TAU, Color(0.2, 0.18, 0.15))
+	_place_enterables(parent, rng, 8, Vector2(8, 11), Vector2(8, 10), 1, mud, [])
 
 
 # ---------------- غابة ----------------
@@ -343,6 +347,7 @@ static func _forest(parent: Node3D, rng: RandomNumberGenerator) -> void:
 		if _near_corner(x, z, 40.0):
 			continue
 		_building(parent, x, z, 8, 4.5, 6, rng, [Color(0.4, 0.28, 0.18), Color(0.45, 0.32, 0.2)])
+	_place_enterables(parent, rng, 3, Vector2(7, 9), Vector2(6, 8), 1, [Color(0.42, 0.3, 0.2), Color(0.46, 0.34, 0.22)], [])
 
 
 # ---------------- قاعدة عسكرية (مدرج + حظائر + برج مراقبة + طائرات) ----------------
@@ -382,6 +387,7 @@ static func _base(parent: Node3D, rng: RandomNumberGenerator) -> void:
 		if _near_corner(x, z, 40.0) or absf(x) < 26.0:
 			continue
 		_solid(parent, Vector3(3.5, 1.8, 1.4), Vector3(x, 0.9, z), Color(0.5, 0.48, 0.38), Vector3(0, rng.randf() * TAU, 0), M.ground(Color(0.4, 0.38, 0.3), Color(0.55, 0.52, 0.42), 0.8))
+	_place_enterables(parent, rng, 4, Vector2(16, 20), Vector2(9, 11), 1, [Color(0.5, 0.52, 0.44), Color(0.45, 0.5, 0.42)], [])
 	for p in [[Vector3(-12, 0, -20), "jet", PI * 0.0], [Vector3(-12, 0, 40), "jet", 0.0], [Vector3(-100, 0, 20), "heli", 0.6], [Vector3(-70, 0, 30), "heli", -0.4]]:
 		var holder := Node3D.new()
 		holder.position = p[0]
@@ -398,3 +404,30 @@ static func _base(parent: Node3D, rng: RandomNumberGenerator) -> void:
 		cs.position.y = 1.4
 		sb.add_child(cs)
 		holder.add_child(sb)
+
+
+static func _place_enterables(parent: Node3D, rng: RandomNumberGenerator, count: int, wr: Vector2, dr: Vector2, floors: int, palette: Array, avoid: Array) -> void:
+	var placed: Array = []
+	var tries := 0
+	while placed.size() < count and tries < 600:
+		tries += 1
+		var x := rng.randf_range(-250, 250)
+		var z := rng.randf_range(-250, 250)
+		if _near_corner(x, z, 55.0) or absf(x) < 26.0 or absf(z) < 26.0:
+			continue
+		var ok := true
+		for q in placed:
+			if Vector2(x, z).distance_to(q) < 38.0:
+				ok = false
+		for a in avoid:
+			if Vector2(x, z).distance_to(a) < 55.0:
+				ok = false
+		if not ok:
+			continue
+		placed.append(Vector2(x, z))
+		var side := 0
+		if absf(x) < absf(z):
+			side = 2 if x > 0.0 else 3
+		else:
+			side = 0 if z > 0.0 else 1
+		B.enterable(parent, Vector3(x, 0, z), rng.randf_range(wr.x, wr.y), rng.randf_range(dr.x, dr.y), floors, palette[rng.randi() % palette.size()], side, rng)

@@ -8,6 +8,8 @@ const Fx := preload("res://scripts/match/fx.gd")
 const UI := preload("res://scripts/ui/ui.gd")
 const HudS := preload("res://scripts/ui/hud.gd")
 const TouchS := preload("res://scripts/ui/touch_controls.gd")
+const Buildings := preload("res://scripts/match/buildings.gd")
+const SM := preload("res://scripts/models/soldier_model.gd")
 
 var local_soldier = null
 var spawn_points := {}
@@ -25,15 +27,10 @@ var respawn_left := 0.0
 
 var hud: Control
 var _loadout: PanelContainer
-var _cls_opt: OptionButton
-var _wpn_opt: OptionButton
-var _kind_opt: OptionButton
-var _deploy: Button
+var _kind_btns := {}
 var _loadout_msg: Label
 var _over_panel: PanelContainer
 var _over_label: Label
-var _cls_keys := []
-var _wpn_keys := []
 var _kind_keys := []
 
 
@@ -53,6 +50,12 @@ func _ready() -> void:
 	for t in int(Net.settings.team_count):
 		scores[t] = 0
 	_build_ui()
+	var wind := AudioStreamPlayer.new()
+	wind.stream = Sfx.stream("wind")
+	wind.volume_db = -20.0
+	add_child(wind)
+	if wind.stream:
+		wind.play()
 	Net.peer_left.connect(_on_peer_left)
 	_announce_loop()
 	if multiplayer.is_server():
@@ -151,7 +154,7 @@ func request_deploy(cls: String, weapon: String, kind: String) -> void:
 		var face := -Vector3(vp.x, 0, vp.z).normalized()
 		var v = spawner.spawn({"type": "vehicle", "name": "V%d" % serial, "kind": kind, "team": team, "pos": vp, "driver": id, "yaw": atan2(-face.x, -face.z)})
 		vcount[cat] = int(vcount[cat]) + 1
-		v.tree_exiting.connect(_vehicle_gone.bind(cat))
+		v.tree_exiting.connect(_vehicle_gone.bind(v, cat))
 		_counts.rpc(vcount)
 		serial += 1
 		player_entity[id] = spawner.spawn({"type": "soldier", "name": "S%d" % serial, "peer": id, "team": team, "cls": cls, "weapon": weapon, "pos": vp})
@@ -160,8 +163,17 @@ func request_deploy(cls: String, weapon: String, kind: String) -> void:
 		player_entity[id] = spawner.spawn({"type": "soldier", "name": "S%d" % serial, "peer": id, "team": team, "cls": cls, "weapon": weapon, "pos": _spawn_pos(team)})
 
 
-func _vehicle_gone(cat: String) -> void:
-	if not multiplayer.is_server() or not Net.in_match:
+func release_slot(v) -> void:
+	if not multiplayer.is_server() or v.released:
+		return
+	v.released = true
+	var cat: String = Cfg.KINDS[v.kind].cat
+	vcount[cat] = maxi(0, int(vcount[cat]) - 1)
+	_counts.rpc(vcount)
+
+
+func _vehicle_gone(v, cat: String) -> void:
+	if not multiplayer.is_server() or not Net.in_match or v.released:
 		return
 	vcount[cat] = maxi(0, int(vcount[cat]) - 1)
 	_counts.rpc(vcount)
@@ -199,6 +211,8 @@ func soldier_died(pid: int, attacker: int) -> void:
 	player_entity.erase(pid)
 	_you_died.rpc_id(pid, float(Net.settings.respawn))
 	if is_instance_valid(s):
+		if not is_instance_valid(s.vehicle):
+			_corpse.rpc(s.global_position, s.rotation.y, Net.players[pid].team, str(s.weapon), str(s.cls))
 		s.queue_free()
 
 
@@ -230,14 +244,16 @@ func rocket_fx(a: Vector3, b: Vector3, t: float, h: float) -> void:
 	Fx.rocket(get_tree(), a, b, t, h)
 
 
-@rpc("authority", "call_local", "unreliable")
+@rpc("authority", "call_local", "reliable")
 func _boom(pos: Vector3, radius: float) -> void:
 	Fx.explosion(get_tree(), pos, radius)
+	Buildings.destroy(get_tree(), pos, radius)
 
 
 @rpc("authority", "call_local", "unreliable")
 func _hitmark() -> void:
 	hud.hitmark()
+	Sfx.ui("hit_flesh", -4.0)
 
 
 @rpc("authority", "call_local", "reliable")
@@ -301,7 +317,7 @@ func _build_ui() -> void:
 
 	_loadout = PanelContainer.new()
 	root.add_child(_loadout)
-	_loadout.custom_minimum_size = Vector2(460, 0)
+	_loadout.custom_minimum_size = Vector2(540, 0)
 	_loadout.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_loadout.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_loadout.grow_vertical = Control.GROW_DIRECTION_BOTH
@@ -310,33 +326,22 @@ func _build_ui() -> void:
 	v.add_theme_constant_override("separation", 8)
 	_loadout.add_child(v)
 	var my_team: int = Net.players.get(multiplayer.get_unique_id(), {"team": 0}).team
-	var tl := UI.label("تجهيز اللاعب — " + Cfg.TEAMS[my_team].name, 24)
+	var tl := UI.label("اختر مكان الانتشار — " + Cfg.TEAMS[my_team].name, 26)
 	tl.modulate = Cfg.TEAMS[my_team].color.lightened(0.45)
 	v.add_child(tl)
+	var info := UI.label("%s  •  %s   (يتغيّر من القائمة الرئيسية)" % [Cfg.CLASSES[Cfg.profile.cls].name, Cfg.WEAPONS[Cfg.profile.weapon].name], 15)
+	info.modulate = UI.AMBER
+	v.add_child(info)
 	v.add_child(HSeparator.new())
-	v.add_child(UI.label("فئة الجندي", 16))
-	_cls_opt = OptionButton.new()
-	for k in Cfg.CLASSES:
-		_cls_keys.append(k)
-		_cls_opt.add_item(Cfg.CLASSES[k].name)
-	v.add_child(_cls_opt)
-	v.add_child(UI.label("السلاح الأساسي", 16))
-	_wpn_opt = OptionButton.new()
-	for k in Cfg.WEAPONS:
-		_wpn_keys.append(k)
-		_wpn_opt.add_item(Cfg.WEAPONS[k].name)
-	v.add_child(_wpn_opt)
-	v.add_child(UI.label("مكان الانتشار", 16))
-	_kind_opt = OptionButton.new()
 	for k in Cfg.KINDS:
 		_kind_keys.append(k)
-		_kind_opt.add_item(Cfg.KINDS[k].name)
-	v.add_child(_kind_opt)
+		var b := UI.button(Cfg.KINDS[k].name, _on_deploy.bind(k))
+		b.custom_minimum_size = Vector2(0, 58 if Cfg.is_mobile else 48)
+		_kind_btns[k] = b
+		v.add_child(b)
 	_loadout_msg = UI.label("", 16)
 	_loadout_msg.modulate = Color(1, 0.6, 0.4)
 	v.add_child(_loadout_msg)
-	_deploy = UI.button("انتشار", _on_deploy)
-	v.add_child(_deploy)
 
 	_over_panel = PanelContainer.new()
 	root.add_child(_over_panel)
@@ -361,27 +366,32 @@ func _show_loadout(msg: String) -> void:
 
 
 func _refresh_kinds() -> void:
-	if _kind_opt == null:
-		return
-	for i in _kind_keys.size():
-		var k: String = _kind_keys[i]
+	for k in _kind_keys:
 		var cat: String = Cfg.KINDS[k].cat
 		if cat == "":
 			continue
 		var lim := int(Net.settings.limits.get(cat, 0))
 		var used := int(vcount.get(cat, 0))
-		_kind_opt.set_item_text(i, "%s (%d/%d)" % [Cfg.KINDS[k].name, used, lim])
-		_kind_opt.set_item_disabled(i, used >= lim)
+		var b: Button = _kind_btns[k]
+		b.text = "%s   (%d / %d)" % [Cfg.KINDS[k].name, used, lim]
+		b.disabled = used >= lim or respawn_left > 0.0
 
 
-func _on_deploy() -> void:
-	request_deploy.rpc_id(1, _cls_keys[_cls_opt.selected], _wpn_keys[_wpn_opt.selected], _kind_keys[_kind_opt.selected])
+func _set_deploy(on: bool) -> void:
+	for k in _kind_keys:
+		var cat: String = Cfg.KINDS[k].cat
+		var full := cat != "" and int(vcount.get(cat, 0)) >= int(Net.settings.limits.get(cat, 0))
+		(_kind_btns[k] as Button).disabled = (not on) or full
+
+
+func _on_deploy(kind: String) -> void:
+	request_deploy.rpc_id(1, Cfg.profile.cls, Cfg.profile.weapon, kind)
 
 
 func _process(delta: float) -> void:
 	if respawn_left > 0.0:
 		respawn_left -= delta
-		_deploy.disabled = respawn_left > 0.0
+		_set_deploy(respawn_left <= 0.0)
 		if respawn_left > 0.0:
 			_loadout_msg.text = "العودة بعد %d ثوانٍ" % ceili(respawn_left)
 		else:
@@ -398,3 +408,20 @@ func _unhandled_input(e: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	if e is InputEventKey and e.pressed and e.keycode == KEY_F10 and Net.is_host:
 		Net.end_match()
+
+
+@rpc("authority", "call_local", "reliable")
+func _corpse(pos: Vector3, yaw: float, team: int, weapon: String, cls: String) -> void:
+	Sfx.play3d("death", pos, 2.0, 1.0, 80.0)
+	var holder := Node3D.new()
+	add_child(holder)
+	holder.global_position = pos
+	holder.rotation.y = yaw
+	var m := SM.build(holder, Cfg.TEAMS[team].color, weapon, cls)
+	var tw := holder.create_tween()
+	tw.tween_property(holder, "rotation:x", -PI * 0.5, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.parallel().tween_property(holder, "position:y", pos.y + 0.15, 0.55)
+	tw.tween_interval(9.0)
+	tw.tween_property(holder, "position:y", pos.y - 1.2, 2.0)
+	tw.tween_callback(holder.queue_free)
+	var dummy = m

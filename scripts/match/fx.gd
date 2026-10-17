@@ -83,6 +83,9 @@ static func impact(tree: SceneTree, pos: Vector3) -> void:
 	m.global_position = pos
 	m.create_tween().tween_property(m, "scale", Vector3.ONE * 3.0, 0.08)
 	_free_later(tree, m, 0.1)
+	var cam := tree.root.get_viewport().get_camera_3d()
+	if cam and randf() < 0.35 and cam.global_position.distance_to(pos) < 70.0:
+		Sfx.play3d("impact", pos, -8.0, randf_range(0.9, 1.2), 70.0)
 
 
 static func _particles(amount: int, life: float, mesh: Mesh) -> CPUParticles3D:
@@ -237,3 +240,36 @@ static func rocket(tree: SceneTree, a: Vector3, b: Vector3, t: float, h: float) 
 			body.queue_free()
 		trail.emitting = false)
 	_free_later(tree, rk, t + 2.5)
+
+
+static func dust(tree: SceneTree, pos: Vector3, size: float) -> void:
+	var root := tree.current_scene
+	if root == null:
+		return
+	var sm := SphereMesh.new()
+	sm.radius = 0.5
+	sm.height = 1.0
+	sm.radial_segments = 8
+	sm.rings = 4
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.vertex_color_use_as_albedo = true
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	sm.material = mat
+	var p := _particles(int(clampf(size * 3.0, 12.0, 36.0)), 4.5, sm)
+	p.direction = Vector3.UP
+	p.spread = 80.0
+	p.initial_velocity_min = 1.0
+	p.initial_velocity_max = 2.0 + size * 0.4
+	p.gravity = Vector3(0, 0.3, 0)
+	p.scale_amount_min = 1.5 + size * 0.1
+	p.scale_amount_max = 3.5 + size * 0.2
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = size * 0.4
+	var ramp := Gradient.new()
+	ramp.colors = PackedColorArray([Color(0.72, 0.65, 0.54, 0.75), Color(0.6, 0.55, 0.47, 0.5), Color(0.55, 0.5, 0.45, 0.0)])
+	ramp.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	p.color_ramp = ramp
+	root.add_child(p)
+	p.global_position = pos
+	_free_later(tree, p, 5.5)
